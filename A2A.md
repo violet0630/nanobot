@@ -43,32 +43,39 @@ nanobot onboard
 这个命令会：
 - 检查依赖
 - 引导配置 LLM API 密钥（OpenAI、Anthropic 等）
-- 创建配置文件 `~/.nanobot/config.toml`
+- 创建配置文件 `~/.nanobot/config.json`
 - 创建工作区目录
 
 ### 3. 配置 A2A
 
-在 `~/.nanobot/config.toml` 中添加 A2A 配置：
+在 `~/.nanobot/config.json` 中添加 A2A 配置：
+
+```json
+{
   "a2a": {
-    "enabled": True,
+    "enabled": true,
     "host": "0.0.0.0",
     "port": 8000,
-    "agent_name": "nanobot-a",
-    "agent_description": "Programming and code analysis specialist",
-    "agent_version": "1.0.0",
-    "remote_agents": [
-        {
-            "name": "nanobot-b",
-            "url": "...",
-            "description": "Data analysis and visualization specialist"
-        },
-        {
-            "name": "nanobot-c",
-            "url": "...",
-            "description": "Financial analysis and investment advisor"
-        }
+    "agentName": "nanobot-a",
+    "agentDescription": "Programming and code analysis specialist",
+    "agentVersion": "1.0.0",
+    "remoteAgents": [
+      {
+        "name": "nanobot-b",
+        "url": "http://192.168.1.100:8000",
+        "description": "Data analysis and visualization specialist"
+      },
+      {
+        "name": "nanobot-c",
+        "url": "http://192.168.1.101:8000",
+        "description": "Financial analysis and investment advisor"
+      }
     ]
   }
+}
+```
+
+> **注意**：配置文件支持 camelCase 和 snake_case 两种命名方式。例如 `agentName` 和 `agent_name` 都可以。
 
 
 ### 4. 启动 nanobot
@@ -97,12 +104,25 @@ nanobot gateway
 
 ### 远程 Agent 配置
 
-```toml
-[[a2a.remote_agents]]
-name = "agent-name"           # 必填：远程 agent 的唯一名称
-url = "http://ip:port"        # 必填：远程 agent 的 A2A 端点
-description = "描述信息"      # 可选：该 agent 的专长描述
+```json
+{
+  "a2a": {
+    "remoteAgents": [
+      {
+        "name": "agent-name",
+        "url": "http://ip:port",
+        "description": "描述信息"
+      }
+    ]
+  }
+}
 ```
+
+| 参数 | 必填 | 说明 |
+|------|------|------|
+| `name` | 是 | 远程 agent 的唯一名称 |
+| `url` | 是 | 远程 agent 的 A2A 端点 |
+| `description` | 否 | 该 agent 的专长描述 |
 
 ## 可用工具
 
@@ -241,16 +261,14 @@ pip install a2a-sdk>=0.3.0
 
 你可以通过修改 agent 描述来调整 LLM 的调用决策：
 
-```toml
-[a2a]
-agent_name = "code-expert"
-agent_description = """
-你是编程专家，擅长：
-- Python/JavaScript/Go 开发
-- 代码审查和优化
-- 系统架构设计
-遇到其他领域的问题时，可以咨询其他专家 agent。
-"""
+```json
+{
+  "a2a": {
+    "enabled": true,
+    "agentName": "code-expert",
+    "agentDescription": "你是编程专家，擅长：\n- Python/JavaScript/Go 开发\n- 代码审查和优化\n- 系统架构设计\n遇到其他领域的问题时，可以咨询其他专家 agent。"
+  }
+}
 ```
 
 ### 环境变量配置

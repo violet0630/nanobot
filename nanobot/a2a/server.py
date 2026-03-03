@@ -29,7 +29,7 @@ except ImportError:
 
 if TYPE_CHECKING:
     from nanobot.agent.loop import AgentLoop
-    from nanobot.a2a.config import A2AConfig
+    from nanobot.config.schema import A2AConfig
 
 
 class A2AServer:

@@ -332,6 +332,7 @@ class A2AConfig(Base):
     agent_name: str = "nanobot"  # Name of this agent
     agent_description: str = "A nanobot AI assistant"  # Description of this agent
     agent_version: str = "1.0.0"  # Version of this agent
+    require_auth_for_extended: bool = False  # Whether extended agent card requires authentication
 
     # Remote agents (clients we can call)
     remote_agents: list[RemoteAgentConfig] = Field(default_factory=list)

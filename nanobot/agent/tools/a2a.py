@@ -5,7 +5,8 @@ This tool allows nanobot to call other nanobot instances using the A2A protocol.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
@@ -20,15 +21,39 @@ class A2ACallTool(Tool):
     This tool enables LLMs to delegate tasks to other specialized nanobot instances.
     """
 
-    name = "a2a_call"
-    description = "Call a remote nanobot agent for specialized assistance. " \
-                  "Use this when the current task requires expertise from another agent. " \
-                  "Available agents can be listed using the a2a_list_agents tool."
+    @property
+    def name(self) -> str:
+        return "a2a_call"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Call a remote nanobot agent for specialized assistance. "
+            "Use this when the current task requires expertise from another agent. "
+            "Available agents can be listed using the a2a_list_agents tool."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "agent_name": {
+                    "type": "string",
+                    "description": "Name of the remote agent to call",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Message to send to the remote agent",
+                },
+            },
+            "required": ["agent_name", "message"],
+        }
 
     def __init__(self, client_manager: "A2AClientManager"):
         self.client_manager = client_manager
 
-    async def call(self, agent_name: str, message: str) -> str:
+    async def execute(self, agent_name: str, message: str) -> str:
         """Send a message to a remote agent.
 
         Args:
@@ -54,62 +79,39 @@ class A2ACallTool(Tool):
             logger.error("A2A call to '{}' failed: {}", agent_name, e)
             raise ValueError(f"Failed to call agent '{agent_name}': {e}")
 
-    def get_definition(self) -> dict:
-        """Get the tool definition for LLM."""
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "agent_name": {
-                            "type": "string",
-                            "description": "Name of the remote agent to call",
-                        },
-                        "message": {
-                            "type": "string",
-                            "description": "Message to send to the remote agent",
-                        },
-                    },
-                    "required": ["agent_name", "message"],
-                },
-            },
-        }
-
 
 class A2AListAgentsTool(Tool):
     """Tool for listing available remote nanobot agents."""
 
-    name = "a2a_list_agents"
-    description = "List all available remote nanobot agents that can be called. " \
-                  "Returns information about each agent including their name, URL, and description."
+    @property
+    def name(self) -> str:
+        return "a2a_list_agents"
+
+    @property
+    def description(self) -> str:
+        return (
+            "List all available remote nanobot agents that can be called. "
+            "Returns information about each agent including their name, URL, and description."
+        )
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        }
 
     def __init__(self, client_manager: "A2AClientManager"):
         self.client_manager = client_manager
 
-    async def call(self) -> list[dict]:
+    async def execute(self) -> str:
         """List all available remote agents.
 
         Returns:
-            List of agent information dictionaries
+            JSON string of agent information list
         """
+        import json
         agents = self.client_manager.list_remote_agents()
         logger.info("A2A listing {} remote agent(s)", len(agents))
-        return agents
-
-    def get_definition(self) -> dict:
-        """Get the tool definition for LLM."""
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                },
-            },
-        }
+        return json.dumps(agents, ensure_ascii=False, indent=2)
