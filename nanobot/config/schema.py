@@ -313,6 +313,30 @@ class MCPServerConfig(Base):
     tool_timeout: int = 30  # Seconds before a tool call is cancelled
 
 
+class RemoteAgentConfig(Base):
+    """Configuration for a remote A2A agent."""
+
+    name: str  # Unique name for this agent (e.g., "nanobot-b")
+    url: str  # The A2A endpoint URL (e.g., "http://192.168.1.100:8000")
+    description: str = ""  # Optional description of what this agent specializes in
+
+
+class A2AConfig(Base):
+    """A2A (Agent-to-Agent) protocol configuration for nanobot."""
+
+    enabled: bool = False  # Enable A2A functionality
+    host: str = "0.0.0.0"  # A2A server host
+    port: int = 8000  # A2A server port (different from gateway port)
+
+    # Agent card configuration
+    agent_name: str = "nanobot"  # Name of this agent
+    agent_description: str = "A nanobot AI assistant"  # Description of this agent
+    agent_version: str = "1.0.0"  # Version of this agent
+
+    # Remote agents (clients we can call)
+    remote_agents: list[RemoteAgentConfig] = Field(default_factory=list)
+
+
 class ToolsConfig(Base):
     """Tools configuration."""
 
@@ -330,6 +354,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    a2a: A2AConfig = Field(default_factory=A2AConfig)
 
     @property
     def workspace_path(self) -> Path:

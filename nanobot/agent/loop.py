@@ -28,7 +28,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ChannelsConfig, ExecToolConfig
+    from nanobot.config.schema import A2AConfig, ChannelsConfig, ExecToolConfig
     from nanobot.cron.service import CronService
 
 
@@ -65,6 +65,7 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        a2a_config: A2AConfig | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -82,6 +83,7 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.a2a_config = a2a_config
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
@@ -110,6 +112,11 @@ class AgentLoop:
         self._consolidation_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
         self._processing_lock = asyncio.Lock()
+
+        # A2A components
+        self._a2a_server = None
+        self._a2a_client_manager = None
+
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
@@ -129,6 +136,36 @@ class AgentLoop:
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+
+        # Register A2A tools if enabled
+        if self.a2a_config and self.a2a_config.enabled:
+            self._setup_a2a_tools()
+
+    def _setup_a2a_tools(self) -> None:
+        """Set up A2A client and tools (lazy initialization)."""
+        try:
+            from nanobot.a2a.client import A2AClientManager
+            from nanobot.agent.tools.a2a import A2ACallTool, A2AListAgentsTool
+
+            # Create client manager
+            if self._a2a_client_manager is None:
+                self._a2a_client_manager = A2AClientManager([])
+                # Configure remote agents from config
+                if self.a2a_config and self.a2a_config.remote_agents:
+                    agents_list = [
+                        {"name": agent.name, "url": agent.url, "description": agent.description}
+                        for agent in self.a2a_config.remote_agents
+                    ]
+                    self._a2a_client_manager.set_remote_agents(agents_list)
+
+            # Register tools
+            self.tools.register(A2ACallTool(self._a2a_client_manager))
+            self.tools.register(A2AListAgentsTool(self._a2a_client_manager))
+            logger.info("A2A tools registered")
+        except ImportError:
+            logger.warning("a2a-python not installed, A2A tools will not be available")
+        except Exception as e:
+            logger.error("Failed to set up A2A tools: {}", e)
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -260,6 +297,7 @@ class AgentLoop:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
         self._running = True
         await self._connect_mcp()
+        await self._start_a2a()
         logger.info("Agent loop started")
 
         while self._running:
@@ -321,6 +359,44 @@ class AgentLoop:
             except (RuntimeError, BaseExceptionGroup):
                 pass  # MCP SDK cancel scope cleanup is noisy but harmless
             self._mcp_stack = None
+
+    async def _start_a2a(self) -> None:
+        """Start A2A server and client if configured."""
+        if not self.a2a_config or not self.a2a_config.enabled:
+            return
+
+        try:
+            # Start A2A client manager
+            if self._a2a_client_manager:
+                await self._a2a_client_manager.initialize()
+                logger.info("A2A client manager started")
+
+            # Start A2A server
+            from nanobot.a2a.server import A2AServer
+            self._a2a_server = A2AServer(self, self.a2a_config)
+            await self._a2a_server.start()
+            logger.info("A2A server started on {}", self._a2a_server.url)
+
+        except ImportError:
+            logger.warning("a2a-python not installed, A2A server will not start")
+        except Exception as e:
+            logger.error("Failed to start A2A: {}", e)
+
+    async def _stop_a2a(self) -> None:
+        """Stop A2A server and client."""
+        if self._a2a_server:
+            try:
+                await self._a2a_server.stop()
+            except Exception as e:
+                logger.error("Error stopping A2A server: {}", e)
+            self._a2a_server = None
+
+        if self._a2a_client_manager:
+            try:
+                await self._a2a_client_manager.close()
+            except Exception as e:
+                logger.error("Error closing A2A client: {}", e)
+            self._a2a_client_manager = None
 
     def stop(self) -> None:
         """Stop the agent loop."""
