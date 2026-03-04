@@ -28,7 +28,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ChannelsConfig, ExecToolConfig
+    from nanobot.config.schema import A2AConfig, ChannelsConfig, ExecToolConfig
     from nanobot.cron.service import CronService
 
 
@@ -65,6 +65,7 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        a2a_config: A2AConfig | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -82,6 +83,7 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.a2a_config = a2a_config
 
         self.context = ContextBuilder(workspace)
         self.sessions = session_manager or SessionManager(workspace)
@@ -105,6 +107,10 @@ class AgentLoop:
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
         self._mcp_connecting = False
+        self._a2a_client: Any | None = None
+        self._a2a_registry: Any | None = None
+        self._a2a_connected = False
+        self._a2a_connecting = False
         self._consolidating: set[str] = set()  # Session keys with consolidation in progress
         self._consolidation_tasks: set[asyncio.Task] = set()  # Strong refs to in-flight tasks
         self._consolidation_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
@@ -151,6 +157,45 @@ class AgentLoop:
                 self._mcp_stack = None
         finally:
             self._mcp_connecting = False
+
+    async def _connect_a2a(self) -> None:
+        """Connect to configured A2A servers (one-time, lazy)."""
+        if self._a2a_connected or self._a2a_connecting or not self.a2a_config or not self.a2a_config.enabled:
+            return
+        self._a2a_connecting = True
+        try:
+            from nanobot.a2a import A2AClientWrapper, AgentCardRegistry
+
+            self._a2a_client = A2AClientWrapper(self.a2a_config.servers)
+            await self._a2a_client.connect_all()
+
+            self._a2a_registry = AgentCardRegistry(
+                self.a2a_config.servers,
+                refresh_interval=self.a2a_config.card_refresh_interval,
+            )
+            await self._a2a_registry.refresh_cards()
+
+            # Register A2A tools
+            from nanobot.agent.tools.a2a import A2ATool, A2AQueryTool
+
+            if self._a2a_client and self._a2a_registry:
+                self.tools.register(A2ATool(self._a2a_client, self._a2a_registry))
+                self.tools.register(A2AQueryTool(self._a2a_registry))
+
+            self._a2a_connected = True
+            logger.info("A2A client connected with {} servers", len(self._a2a_registry.get_server_names()))
+
+            # Add A2A context to system prompt
+            a2a_context = self._a2a_registry.format_for_llm()
+            if a2a_context:
+                self.context._a2a_context = a2a_context
+                logger.debug("Added A2A context to system prompt")
+        except ImportError:
+            logger.warning("a2a-sdk not installed, A2A features disabled. Install with: pip install 'nanobot-ai[a2a]'")
+        except Exception as e:
+            logger.error("Failed to connect A2A servers (will retry next message): {}", e)
+        finally:
+            self._a2a_connecting = False
 
     def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
         """Update context for all tools that need routing info."""
@@ -260,6 +305,7 @@ class AgentLoop:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
         self._running = True
         await self._connect_mcp()
+        await self._connect_a2a()
         logger.info("Agent loop started")
 
         while self._running:
@@ -321,6 +367,21 @@ class AgentLoop:
             except (RuntimeError, BaseExceptionGroup):
                 pass  # MCP SDK cancel scope cleanup is noisy but harmless
             self._mcp_stack = None
+
+    async def close_a2a(self) -> None:
+        """Close A2A connections."""
+        if self._a2a_registry:
+            try:
+                await self._a2a_registry.stop_auto_refresh()
+            except Exception:
+                pass
+        if self._a2a_client:
+            try:
+                await self._a2a_client.close_all()
+            except Exception:
+                pass
+        self._a2a_registry = None
+        self._a2a_client = None
 
     def stop(self) -> None:
         """Stop the agent loop."""
@@ -493,6 +554,7 @@ class AgentLoop:
     ) -> str:
         """Process a message directly (for CLI or cron usage)."""
         await self._connect_mcp()
+        await self._connect_a2a()
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""

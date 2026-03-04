@@ -22,6 +22,7 @@ class ContextBuilder:
         self.workspace = workspace
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
+        self._a2a_context: str | None = None  # A2A 服务器信息
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
@@ -49,6 +50,15 @@ The following skills extend your capabilities. To use a skill, read its SKILL.md
 Skills with available="false" need dependencies installed first - you can try installing them with apt/brew.
 
 {skills_summary}""")
+
+        # Add A2A (remote agent) context if available
+        if self._a2a_context:
+            parts.append(f"""# Available Remote Agents (A2A)
+
+You can delegate requests to specialized remote agents using the `delegate_to_a2a_agent` tool.
+When a user request matches an agent's skills, use this tool to forward the request.
+
+{self._a2a_context}""")
 
         return "\n\n---\n\n".join(parts)
 

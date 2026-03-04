@@ -291,6 +291,7 @@ def gateway(
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        a2a_config=config.a2a if config.a2a.enabled else None,
     )
 
     # Set cron callback (needs agent)
@@ -401,6 +402,7 @@ def gateway(
             console.print("\nShutting down...")
         finally:
             await agent.close_mcp()
+            await agent.close_a2a()
             heartbeat.stop()
             cron.stop()
             agent.stop()
@@ -463,6 +465,7 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        a2a_config=config.a2a if config.a2a.enabled else None,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -488,6 +491,7 @@ def agent(
                 response = await agent_loop.process_direct(message, session_id, on_progress=_cli_progress)
             _print_agent_response(response, render_markdown=markdown)
             await agent_loop.close_mcp()
+            await agent_loop.close_a2a()
 
         asyncio.run(run_once())
     else:
@@ -583,6 +587,7 @@ def agent(
                 outbound_task.cancel()
                 await asyncio.gather(bus_task, outbound_task, return_exceptions=True)
                 await agent_loop.close_mcp()
+            await agent_loop.close_a2a()
 
         asyncio.run(run_interactive())
 
@@ -957,6 +962,7 @@ def cron_run(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        a2a_config=config.a2a if config.a2a.enabled else None,
     )
 
     store_path = get_data_dir() / "cron" / "jobs.json"

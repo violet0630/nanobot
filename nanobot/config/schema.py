@@ -322,6 +322,23 @@ class ToolsConfig(Base):
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
+class A2AServerConfig(Base):
+    """Configuration for a single A2A server connection."""
+
+    url: str = ""  # Server base URL
+    enabled: bool = True
+    api_key: str = ""  # Optional API key for authentication
+
+
+class A2AConfig(Base):
+    """A2A client configuration for agent-to-agent communication."""
+
+    enabled: bool = False
+    servers: dict[str, A2AServerConfig] = Field(default_factory=dict)
+    auto_discover: bool = True  # Automatically fetch agent cards on startup
+    card_refresh_interval: int = 300  # Seconds between card refreshes (0 to disable)
+
+
 class Config(BaseSettings):
     """Root configuration for nanobot."""
 
@@ -330,6 +347,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    a2a: A2AConfig = Field(default_factory=A2AConfig)
 
     @property
     def workspace_path(self) -> Path:
