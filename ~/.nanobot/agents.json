@@ -1,0 +1,46 @@
+{
+  "agents": {
+    "nanobot": {
+      "@context": "https://www.w3.org/ns/did/v1",
+      "protocolType": "ANP",
+      "protocolVersion": "1.0.0",
+      "type": "AgentDescription",
+      "name": "Nanobot User Representative",
+      "did": "did:wba:nanobot.local:agent:user-representative",
+      "role": "User Representative",
+      "description": "Nanobot is the user's personal AI assistant representing the user in the ANP agent network. It has Human-in-the-loop authority for security-sensitive operations like providing verification codes.",
+      "owner": {
+        "type": "Person",
+        "name": "User"
+      },
+      "capabilities": [
+        "Human-in-the-loop authorization",
+        "Verification code provision",
+        "User notification and approval workflow",
+        "Natural language interface"
+      ],
+      "interfaces": [
+        {
+          "type": "NaturalLanguageInterface",
+          "protocol": "ANP-NL",
+          "version": "1.0",
+          "description": "Natural language interface for user interaction and authorization"
+        },
+        {
+          "type": "StructuredInterface",
+          "protocol": "openrpc",
+          "url": "http://localhost:8080/anp/rpc",
+          "description": "JSON-RPC 2.0 interface for ANP protocol communication"
+        }
+      ],
+      "securityDefinitions": {
+        "didwba_sc": {
+          "scheme": "didwba",
+          "in": "header",
+          "name": "Authorization"
+        }
+      },
+      "security": "didwba_sc"
+    }
+  }
+}

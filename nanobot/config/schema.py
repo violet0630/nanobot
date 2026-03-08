@@ -217,6 +217,7 @@ class ChannelsConfig(Base):
     matrix: MatrixConfig = Field(default_factory=MatrixConfig)
 
 
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -322,6 +323,19 @@ class ToolsConfig(Base):
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
+class ANPConfig(Base):
+    """ANP (Agent Network Protocol) configuration."""
+
+    enabled: bool = False  # Whether ANP is enabled
+    host: str = "0.0.0.0"  # ANP server host
+    port: int = 8080  # ANP server port
+    jwt_secret: str = "your-secret-key"  # JWT secret for authentication
+    auth_enabled: bool = True  # Whether DID WBA authentication is required
+    did: str = "did:wba:nanobot.local:agent:user-representative"  # DID of this agent
+    agent_registry_path: str | None = None  # Path to agent registry (default: ~/.nanobot/agents.json)
+    user_notification_target: str = ""  # Format: "channel:chat_id" for user notifications
+
+
 class Config(BaseSettings):
     """Root configuration for nanobot."""
 
@@ -330,6 +344,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    anp: ANPConfig = Field(default_factory=ANPConfig)
 
     @property
     def workspace_path(self) -> Path:

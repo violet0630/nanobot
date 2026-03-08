@@ -1,15 +1,20 @@
 """Event types for the message bus."""
 
+from __future__ import annotations
+
+import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+
+from loguru import logger
 
 
 @dataclass
 class InboundMessage:
     """Message received from a chat channel."""
 
-    channel: str  # telegram, discord, slack, whatsapp
+    channel: str  # telegram, discord, slack, whatsapp, anp
     sender_id: str  # User identifier
     chat_id: str  # Chat/channel identifier
     content: str  # Message text
@@ -17,6 +22,10 @@ class InboundMessage:
     media: list[str] = field(default_factory=list)  # Media URLs
     metadata: dict[str, Any] = field(default_factory=dict)  # Channel-specific data
     session_key_override: str | None = None  # Optional override for thread-scoped sessions
+
+    # ANP-specific fields for request-response correlation
+    correlation_id: str | None = None  # For matching ANP request/response
+    response_future: asyncio.Future | None = None  # For ANP server mode to wait for response
 
     @property
     def session_key(self) -> str:
@@ -34,5 +43,18 @@ class OutboundMessage:
     reply_to: str | None = None
     media: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+
+    # ANP-specific: correlation_id for matching response to request
+    correlation_id: str | None = None
+
+
+# ANP-specific event for response correlation
+@dataclass
+class ANPResponseEvent:
+    """Event for correlating ANP request with response."""
+
+    correlation_id: str
+    result: dict[str, Any]
+    error: str | None = None
 
 

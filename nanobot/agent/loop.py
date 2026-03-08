@@ -110,7 +110,11 @@ class AgentLoop:
         self._consolidation_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
         self._processing_lock = asyncio.Lock()
+        self._anp_server = None
+        self._anp_config = None  # Store ANP config for later startup
+        self._last_active_user: dict[str, str] = {}  # channel -> chat_id for ANP notifications
         self._register_default_tools()
+        self._register_anp_tools()
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
@@ -129,6 +133,60 @@ class AgentLoop:
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+
+    def _register_anp_tools(self) -> None:
+        """Register ANP (Agent Network Protocol) tools if enabled."""
+        try:
+            from nanobot.skills.anp.tool import (
+                ANPCallTool,
+                ANPListAgentsTool,
+                ANPGetAgentInfoTool,
+            )
+            from nanobot.config.loader import load_config
+
+            # Load ANP config from config file
+            config = load_config()
+            anp_config = getattr(config, 'anp', None) or getattr(config.channels, 'anp', None)
+
+            # Check if ANP is enabled in config
+            if anp_config and getattr(anp_config, "enabled", False):
+                self.tools.register(ANPCallTool())
+                self.tools.register(ANPListAgentsTool())
+                self.tools.register(ANPGetAgentInfoTool())
+                logger.info("ANP tools registered")
+
+                # Store config for later async startup
+                self._anp_config = anp_config
+        except ImportError as e:
+            logger.debug("ANP tools not available: {}", e)
+        except Exception as e:
+            logger.warning("Failed to register ANP tools: {}", e)
+
+    async def _start_anp_server_async(self) -> None:
+        """Start the ANP server for receiving external requests (async version)."""
+        if not self._anp_config:
+            return
+
+        try:
+            from nanobot.anp.server import ANPServer
+
+            self._anp_server = ANPServer(
+                bus=self.bus,
+                host=getattr(self._anp_config, "host", "0.0.0.0"),
+                port=getattr(self._anp_config, "port", 8080),
+                jwt_secret=getattr(self._anp_config, "jwt_secret", "your-secret-key"),
+                auth_enabled=getattr(self._anp_config, "auth_enabled", True),
+                agent_registry_path=getattr(self._anp_config, "agent_registry_path", None),
+                agent_loop=self,  # Pass agent loop reference
+            )
+
+            # Start server in background
+            await self._anp_server.start()
+            logger.info("ANP server started on port {}", getattr(self._anp_config, "port", 8080))
+        except ImportError:
+            logger.warning("FastAPI not available, ANP server not started")
+        except Exception as e:
+            logger.error("Failed to start ANP server: {}", e)
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -260,6 +318,7 @@ class AgentLoop:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
         self._running = True
         await self._connect_mcp()
+        await self._start_anp_server_async()
         logger.info("Agent loop started")
 
         while self._running:
@@ -297,7 +356,11 @@ class AgentLoop:
             try:
                 response = await self._process_message(msg)
                 if response is not None:
-                    await self.bus.publish_outbound(response)
+                    # ANP server mode: handle response correlation directly
+                    if response.channel == "anp":
+                        await self._complete_anp_response(response)
+                    else:
+                        await self.bus.publish_outbound(response)
                 elif msg.channel == "cli":
                     await self.bus.publish_outbound(OutboundMessage(
                         channel=msg.channel, chat_id=msg.chat_id,
@@ -312,6 +375,40 @@ class AgentLoop:
                     channel=msg.channel, chat_id=msg.chat_id,
                     content="Sorry, I encountered an error.",
                 ))
+
+    async def _complete_anp_response(self, response: OutboundMessage) -> None:
+        """
+        Complete an ANP request by setting the response_future.
+
+        This is called when an ANP server request has been processed and the response
+        needs to be sent back to the waiting HTTP request in server.py.
+
+        Args:
+            response: The OutboundMessage containing the ANP response
+        """
+        correlation_id = response.metadata.get("correlation_id")
+        if not correlation_id:
+            logger.warning("ANP response missing correlation_id")
+            return
+
+        try:
+            # Import here to avoid circular dependency
+            from nanobot.anp.server import complete_pending_request
+
+            # Build the result dict
+            result = {
+                "status": "success",
+                "content": response.content,
+                "metadata": response.metadata,
+            }
+
+            # Complete the pending request future
+            if complete_pending_request(correlation_id, result):
+                logger.debug("ANP request completed: correlation_id={}", correlation_id)
+            else:
+                logger.warning("ANP request not found or already completed: correlation_id={}", correlation_id)
+        except Exception as e:
+            logger.error("Error completing ANP response: {}", e)
 
     async def close_mcp(self) -> None:
         """Close MCP connections."""
@@ -353,8 +450,18 @@ class AgentLoop:
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
 
+        # ANP server mode: handle external agent requests
+        if msg.channel == "anp":
+            return await self._process_anp_message(msg)
+
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
+
+        # Track the last active user for ANP notifications
+        # Only track non-system, non-ANP messages from real users
+        if msg.channel not in ("system", "anp") and msg.chat_id:
+            self._last_active_user[msg.channel] = msg.chat_id
+            logger.debug("Updated last active user for {}: {}", msg.channel, msg.chat_id)
 
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
@@ -482,6 +589,224 @@ class AgentLoop:
             session, self.provider, self.model,
             archive_all=archive_all, memory_window=self.memory_window,
         )
+
+    def _get_user_notification_target(self) -> tuple[str, str]:
+        """
+        Get the user's notification channel and chat_id for ANP requests.
+
+        Returns:
+            Tuple of (channel, chat_id). If no target is configured, returns
+            the first enabled channel with its default chat_id.
+
+        Priority:
+        1. ANPConfig.user_notification_target (format: "channel:chat_id")
+        2. Last active user from _last_active_user (tracked from real user messages)
+        3. First enabled channel from channels_config with valid chat_id
+        4. Fallback to ("cli", "direct")
+        """
+        from nanobot.config.loader import load_config
+
+        logger.debug(f"[ANP Server] _last_active_user: {self._last_active_user}")
+
+        # Priority 1: Try to load ANP config from top level or channels
+        try:
+            config = load_config()
+            anp_config = getattr(config, 'anp', None) or getattr(config.channels, 'anp', None)
+
+            if anp_config:
+                target = getattr(anp_config, "user_notification_target", "")
+                logger.debug(f"[ANP Server] ANP user_notification_target from config: {target}")
+                if target and ":" in target:
+                    channel, chat_id = target.split(":", 1)
+                    logger.info(f"[ANP Server] Using configured notification target: {channel}:{chat_id}")
+                    return channel.strip(), chat_id.strip()
+        except Exception as e:
+            logger.warning(f"[ANP Server] Failed to load ANP config: {e}")
+
+        # Priority 2: Use last active user (tracked from real user messages)
+        # This is the most reliable source when user has sent a message
+        if self._last_active_user:
+            # Prefer channels in priority order
+            channel_priority = ["feishu", "telegram", "discord", "matrix"]
+            for channel_name in channel_priority:
+                if channel_name in self._last_active_user:
+                    chat_id = self._last_active_user[channel_name]
+                    # Validate chat_id is not a wildcard or placeholder
+                    if chat_id and chat_id != "*" and not chat_id.startswith("${"):
+                        logger.info(f"[ANP Server] Using last active user for {channel_name}: {chat_id}")
+                        return channel_name, chat_id
+            # Fall through to config-based detection if no valid last active user
+
+        # Priority 3: Auto-detect from config
+        if self.channels_config:
+            channel_priority = ["feishu", "telegram", "discord", "matrix"]
+            for channel_name in channel_priority:
+                channel_config = getattr(self.channels_config, channel_name, None)
+                if channel_config and getattr(channel_config, "enabled", False):
+                    allow_list = getattr(channel_config, "allow_from", [])
+                    # Skip wildcard allow lists - we need a real user ID
+                    if allow_list and allow_list[0] != "*":
+                        return channel_name, allow_list[0]
+                    # For matrix, use user_id
+                    if channel_name == "matrix":
+                        user_id = getattr(channel_config, "user_id", "")
+                        if user_id:
+                            return channel_name, user_id
+
+        # Priority 4: Fallback
+        return "cli", "direct"
+
+    async def _process_anp_message(self, msg: InboundMessage) -> OutboundMessage:
+        """
+        Process an ANP server mode request from an external agent.
+
+        This handles the server-side flow when an external ANP agent calls us.
+        The message should include metadata with method and params from the JSON-RPC request.
+
+        Args:
+            msg: InboundMessage with channel="anp" and metadata containing method/params
+
+        Returns:
+            OutboundMessage with the result (will be sent back as JSON-RPC response)
+        """
+        from nanobot.templates.memory import MEMORY_MD
+        from datetime import datetime
+
+        caller_did = msg.metadata.get("caller_did", msg.sender_id)
+        method = msg.metadata.get("method", "")
+        params = msg.metadata.get("params", {})
+        correlation_id = msg.metadata.get("correlation_id", "")
+
+        logger.info("Processing ANP request: caller={}, method={}", caller_did, method)
+
+        # Get user notification target (channel, chat_id)
+        user_channel, user_chat_id = self._get_user_notification_target()
+        logger.info("User notification target: {}:{}", user_channel, user_chat_id)
+
+        # Set message tool context to user's channel for forwarding
+        self._set_tool_context(user_channel, user_chat_id)
+
+        # Identify the calling agent from registry for better context
+        caller_info = self._get_agent_info_by_did(caller_did)
+        caller_name = caller_info.get("name", "Unknown Agent") if caller_info else "Unknown Agent"
+        caller_role = caller_info.get("role", "") if caller_info else ""
+
+        # Build ANP-specific context with server mode instructions
+        # Simplified prompt focused on verification code requests
+        anp_system_prompt = f"""# ANP Server Mode - User Representative Agent
+
+You are Nanobot, the User Representative Agent. You just received an ANP request from an external agent.
+
+## CRITICAL: Response Format
+You MUST respond with valid JSON only. NO tools, NO markdown, just JSON.
+
+Your response MUST be one of these JSON objects:
+
+1. For verification code requests (NEED USER INPUT):
+   {{"status": "pending_user_approval", "message": "Description of what user needs to provide"}}
+
+2. For requests that require forwarding to user:
+   {{"status": "forward_to_user", "message": "Message to show user"}}
+
+3. For direct responses:
+   {{"status": "success", "message": "Response message"}}
+
+4. For errors:
+   {{"status": "error", "message": "Error description"}}
+
+## Request Analysis
+- **Caller**: {caller_name} ({caller_did})
+- **Role**: {caller_role}
+- **Method**: {method}
+- **Parameters**: {json.dumps(params, indent=2, ensure_ascii=False)}
+
+## Decision Rules
+
+### RULE 1: Verification Code Requests
+If the message contains "verification_code_request", "verification code", "security code", or similar:
+- Respond with: {{"status": "pending_user_approval", "message": "A verification code is needed. Please check your messages."}}
+
+### RULE 2: Security/Sensitive Requests
+If the request is about security upgrades, data access, log access, or credentials:
+- Respond with: {{"status": "forward_to_user", "message": "Security-sensitive request from {caller_name}: {method}"}}
+
+### RULE 3: All Other Requests
+- Respond with: {{"status": "success", "message": "Request processed successfully"}}
+
+## Example
+If method is "receiveNotice" and params contain "verification_code_request":
+Respond: {{"status": "pending_user_approval", "message": "Verification code required for security upgrade"}}
+"""
+
+        # Build messages for LLM processing
+        # ANP server mode is stateless - don't use session history to avoid tool role errors
+        # Build context with ANP server instructions
+        messages = [
+            {"role": "system", "content": anp_system_prompt},
+            {"role": "user", "content": f"ANP Request: {method} from {caller_name} ({caller_did}) with params: {json.dumps(params, ensure_ascii=False)}"}
+        ]
+
+        # For ANP server mode, use direct LLM call with JSON response format
+        # This avoids the tool call loop which is not needed for simple request/response
+        response = await self.provider.chat(
+            messages=messages,
+            tools=None,  # No tools for ANP server mode - we want direct JSON response
+            model=self.model,
+            temperature=0.1,  # Lower temperature for more deterministic responses
+            max_tokens=1000,
+        )
+
+        final_content = response.content
+
+        # Parse the JSON response
+        try:
+            result_data = json.loads(final_content) if isinstance(final_content, str) else final_content
+            status = result_data.get("status", "unknown")
+
+            # Check if this is a request that needs user notification
+            if status in ["pending_user_approval", "requesting_verification", "forward_to_user"]:
+                # Extract the message content to send to user
+                user_message = result_data.get("message", "ANP request requires your attention")
+
+                # Publish to bus for user notification - simpler approach
+                await self.bus.publish_outbound(OutboundMessage(
+                    channel=user_channel,
+                    chat_id=user_chat_id,
+                    content=f"[ANP Request from {caller_name}]\n\n{user_message}\n\n[Please respond to approve or deny.]"
+                ))
+
+                logger.info(f"[ANP Server] Forwarded request to user at {user_channel}:{user_chat_id}")
+
+        except json.JSONDecodeError:
+            logger.warning(f"[ANP Server] Response was not valid JSON: {final_content}")
+            result_data = {"status": "error", "message": final_content}
+        else:
+            logger.info(f"[ANP Server] LLM response status: {status}, action: {result_data.get('action', 'N/A')}")
+
+        # Note: Not saving to session - ANP server mode is stateless
+
+        # Return response as OutboundMessage (will be converted to JSON-RPC by server)
+        return OutboundMessage(
+            channel="anp",
+            chat_id=caller_did,
+            content=final_content or "Request processed",
+            metadata={
+                "correlation_id": correlation_id,
+                "caller_did": caller_did,
+                "method": method,
+                "user_channel": user_channel,
+                "user_chat_id": user_chat_id,
+            }
+        )
+
+    def _get_agent_info_by_did(self, did: str) -> dict[str, Any] | None:
+        """Get agent information from registry by DID."""
+        try:
+            from nanobot.anp.agent_registry import AgentRegistry
+            registry = AgentRegistry()
+            return registry.get_by_did(did)
+        except Exception:
+            return None
 
     async def process_direct(
         self,
