@@ -599,8 +599,8 @@ class AgentLoop:
             the first enabled channel with its default chat_id.
 
         Priority:
-        1. ANPConfig.user_notification_target (format: "channel:chat_id")
-        2. Last active user from _last_active_user (tracked from real user messages)
+        1. Last active user from _last_active_user (tracked from real user messages)
+        2. ANPConfig.user_notification_target (format: "channel:chat_id")
         3. First enabled channel from channels_config with valid chat_id
         4. Fallback to ("cli", "direct")
         """
@@ -608,7 +608,25 @@ class AgentLoop:
 
         logger.debug(f"[ANP Server] _last_active_user: {self._last_active_user}")
 
-        # Priority 1: Try to load ANP config from top level or channels
+        # Priority 1: Use last active user (tracked from real user messages)
+        # This is the most reliable source when user has sent a message
+        if self._last_active_user:
+            # Prefer channels in priority order
+            channel_priority = ["feishu", "telegram", "discord", "matrix"]
+            for channel_name in channel_priority:
+                if channel_name in self._last_active_user:
+                    chat_id = self._last_active_user[channel_name]
+                    # Validate chat_id is not a wildcard or placeholder
+                    # For Feishu: valid IDs start with "ou_" (user) or "oc_" (chat)
+                    if chat_id and chat_id != "*" and not chat_id.startswith("${"):
+                        # Skip placeholder IDs like "ou_default_user"
+                        if chat_name := ("default" in chat_id.lower() if chat_id else False):
+                            continue
+                        logger.info(f"[ANP Server] Using last active user for {channel_name}: {chat_id}")
+                        return channel_name, chat_id
+            # Fall through to config-based detection if no valid last active user
+
+        # Priority 2: Try to load ANP config from top level or channels
         try:
             config = load_config()
             anp_config = getattr(config, 'anp', None) or getattr(config.channels, 'anp', None)
@@ -618,24 +636,14 @@ class AgentLoop:
                 logger.debug(f"[ANP Server] ANP user_notification_target from config: {target}")
                 if target and ":" in target:
                     channel, chat_id = target.split(":", 1)
-                    logger.info(f"[ANP Server] Using configured notification target: {channel}:{chat_id}")
-                    return channel.strip(), chat_id.strip()
+                    channel = channel.strip()
+                    chat_id = chat_id.strip()
+                    # Skip placeholder IDs
+                    if "default" not in chat_id.lower():
+                        logger.info(f"[ANP Server] Using configured notification target: {channel}:{chat_id}")
+                        return channel, chat_id
         except Exception as e:
             logger.warning(f"[ANP Server] Failed to load ANP config: {e}")
-
-        # Priority 2: Use last active user (tracked from real user messages)
-        # This is the most reliable source when user has sent a message
-        if self._last_active_user:
-            # Prefer channels in priority order
-            channel_priority = ["feishu", "telegram", "discord", "matrix"]
-            for channel_name in channel_priority:
-                if channel_name in self._last_active_user:
-                    chat_id = self._last_active_user[channel_name]
-                    # Validate chat_id is not a wildcard or placeholder
-                    if chat_id and chat_id != "*" and not chat_id.startswith("${"):
-                        logger.info(f"[ANP Server] Using last active user for {channel_name}: {chat_id}")
-                        return channel_name, chat_id
-            # Fall through to config-based detection if no valid last active user
 
         # Priority 3: Auto-detect from config
         if self.channels_config:
@@ -654,6 +662,7 @@ class AgentLoop:
                             return channel_name, user_id
 
         # Priority 4: Fallback
+        logger.warning("[ANP Server] No valid user notification target found, falling back to cli:direct")
         return "cli", "direct"
 
     async def _process_anp_message(self, msg: InboundMessage) -> OutboundMessage:
@@ -669,7 +678,6 @@ class AgentLoop:
         Returns:
             OutboundMessage with the result (will be sent back as JSON-RPC response)
         """
-        from nanobot.templates.memory import MEMORY_MD
         from datetime import datetime
 
         caller_did = msg.metadata.get("caller_did", msg.sender_id)
@@ -691,9 +699,74 @@ class AgentLoop:
         caller_name = caller_info.get("name", "Unknown Agent") if caller_info else "Unknown Agent"
         caller_role = caller_info.get("role", "") if caller_info else ""
 
-        # Build ANP-specific context with server mode instructions
-        # Simplified prompt focused on verification code requests
-        anp_system_prompt = f"""# ANP Server Mode - User Representative Agent
+        # Parse message content for keyword detection
+        message_content = params.get("message", "")
+        if isinstance(message_content, str):
+            try:
+                message_data = json.loads(message_content)
+            except json.JSONDecodeError:
+                message_data = {"raw": message_content}
+        else:
+            message_data = message_content
+
+        logger.info(f"[ANP Server] Parsed message data: {message_data}")
+
+        # CRITICAL FIX: Direct keyword detection BEFORE LLM call
+        # This ensures verification code requests are ALWAYS forwarded to user
+        needs_user_attention = False
+        user_notification_message = ""
+        is_verification_request = False
+
+        # Check for verification code request indicators
+        message_type = message_data.get("type", "") if isinstance(message_data, dict) else ""
+        message_str = json.dumps(message_data).lower() if isinstance(message_data, dict) else str(message_data).lower()
+
+        verification_keywords = [
+            "verification_code_request", "verification code", "security code",
+            "verification_required", "code needed", "需要验证码"
+        ]
+        security_keywords = [
+            "security_upgrade", "security alert", "data access", "credential",
+            "authorization", "sensitive", "安全升级", "授权"
+        ]
+
+        for keyword in verification_keywords:
+            if keyword.lower() in message_str or keyword.lower() == message_type.lower():
+                is_verification_request = True
+                needs_user_attention = True
+                user_notification_message = f"🔐 **验证码请求**\n\nAgent {caller_name} (角色: {caller_role}) 请求提供安全验证码。\n\n**原因**: {message_data.get('reason', '安全升级')}\n\n请回复验证码以继续，或回复'拒绝'以取消。"
+                break
+
+        if not needs_user_attention:
+            for keyword in security_keywords:
+                if keyword.lower() in message_str:
+                    needs_user_attention = True
+                    user_notification_message = f"🔒 **安全相关请求**\n\nAgent {caller_name} (角色: {caller_role}) 发送了安全相关请求。\n\n**类型**: {message_type or method}\n\n请查看并决定是否授权。"
+                    break
+
+        # If user attention needed, forward directly without LLM
+        if needs_user_attention:
+            logger.warning(f"[ANP Server] *** FORWARDING TO USER: {user_channel}:{user_chat_id} ***")
+            logger.warning(f"[ANP Server] Message: {user_notification_message[:100]}...")
+
+            # Publish to bus for user notification
+            outbound_msg = OutboundMessage(
+                channel=user_channel,
+                chat_id=user_chat_id,
+                content=f"[ANP 请求来自 {caller_name}]\n\n{user_notification_message}"
+            )
+            await self.bus.publish_outbound(outbound_msg)
+            logger.info(f"[ANP Server] Successfully forwarded request to user at {user_channel}:{user_chat_id}")
+
+            # Return success response to caller
+            result_data = {
+                "status": "pending_user_approval" if is_verification_request else "forward_to_user",
+                "message": user_notification_message,
+                "action": "request_verification_code" if is_verification_request else "forward_to_user"
+            }
+        else:
+            # For non-critical requests, use LLM for processing
+            anp_system_prompt = f"""# ANP Server Mode - User Representative Agent
 
 You are Nanobot, the User Representative Agent. You just received an ANP request from an external agent.
 
@@ -703,10 +776,10 @@ You MUST respond with valid JSON only. NO tools, NO markdown, just JSON.
 Your response MUST be one of these JSON objects:
 
 1. For verification code requests (NEED USER INPUT):
-   {{"status": "pending_user_approval", "message": "Description of what user needs to provide"}}
+   {{"status": "pending_user_approval", "message": "Description of what user needs to provide", "action": "request_verification_code"}}
 
 2. For requests that require forwarding to user:
-   {{"status": "forward_to_user", "message": "Message to show user"}}
+   {{"status": "forward_to_user", "message": "Message to show user", "action": "forward_to_user"}}
 
 3. For direct responses:
    {{"status": "success", "message": "Response message"}}
@@ -724,72 +797,44 @@ Your response MUST be one of these JSON objects:
 
 ### RULE 1: Verification Code Requests
 If the message contains "verification_code_request", "verification code", "security code", or similar:
-- Respond with: {{"status": "pending_user_approval", "message": "A verification code is needed. Please check your messages."}}
+- Respond with: {{"status": "pending_user_approval", "message": "A verification code is needed.", "action": "request_verification_code"}}
 
 ### RULE 2: Security/Sensitive Requests
 If the request is about security upgrades, data access, log access, or credentials:
-- Respond with: {{"status": "forward_to_user", "message": "Security-sensitive request from {caller_name}: {method}"}}
+- Respond with: {{"status": "forward_to_user", "message": "Security-sensitive request from {caller_name}: {method}", "action": "forward_to_user"}}
 
 ### RULE 3: All Other Requests
 - Respond with: {{"status": "success", "message": "Request processed successfully"}}
-
-## Example
-If method is "receiveNotice" and params contain "verification_code_request":
-Respond: {{"status": "pending_user_approval", "message": "Verification code required for security upgrade"}}
 """
 
-        # Build messages for LLM processing
-        # ANP server mode is stateless - don't use session history to avoid tool role errors
-        # Build context with ANP server instructions
-        messages = [
-            {"role": "system", "content": anp_system_prompt},
-            {"role": "user", "content": f"ANP Request: {method} from {caller_name} ({caller_did}) with params: {json.dumps(params, ensure_ascii=False)}"}
-        ]
+            messages = [
+                {"role": "system", "content": anp_system_prompt},
+                {"role": "user", "content": f"ANP Request: {method} from {caller_name} ({caller_did}) with params: {json.dumps(params, ensure_ascii=False)}"}
+            ]
 
-        # For ANP server mode, use direct LLM call with JSON response format
-        # This avoids the tool call loop which is not needed for simple request/response
-        response = await self.provider.chat(
-            messages=messages,
-            tools=None,  # No tools for ANP server mode - we want direct JSON response
-            model=self.model,
-            temperature=0.1,  # Lower temperature for more deterministic responses
-            max_tokens=1000,
-        )
+            response = await self.provider.chat(
+                messages=messages,
+                tools=None,
+                model=self.model,
+                temperature=0.1,
+                max_tokens=1000,
+            )
 
-        final_content = response.content
+            final_content = response.content
 
-        # Parse the JSON response
-        try:
-            result_data = json.loads(final_content) if isinstance(final_content, str) else final_content
-            status = result_data.get("status", "unknown")
+            try:
+                result_data = json.loads(final_content) if isinstance(final_content, str) else final_content
+            except json.JSONDecodeError:
+                logger.warning(f"[ANP Server] Response was not valid JSON: {final_content}")
+                result_data = {"status": "success", "message": final_content}
 
-            # Check if this is a request that needs user notification
-            if status in ["pending_user_approval", "requesting_verification", "forward_to_user"]:
-                # Extract the message content to send to user
-                user_message = result_data.get("message", "ANP request requires your attention")
-
-                # Publish to bus for user notification - simpler approach
-                await self.bus.publish_outbound(OutboundMessage(
-                    channel=user_channel,
-                    chat_id=user_chat_id,
-                    content=f"[ANP Request from {caller_name}]\n\n{user_message}\n\n[Please respond to approve or deny.]"
-                ))
-
-                logger.info(f"[ANP Server] Forwarded request to user at {user_channel}:{user_chat_id}")
-
-        except json.JSONDecodeError:
-            logger.warning(f"[ANP Server] Response was not valid JSON: {final_content}")
-            result_data = {"status": "error", "message": final_content}
-        else:
-            logger.info(f"[ANP Server] LLM response status: {status}, action: {result_data.get('action', 'N/A')}")
-
-        # Note: Not saving to session - ANP server mode is stateless
+        logger.info(f"[ANP Server] Final result: {result_data}")
 
         # Return response as OutboundMessage (will be converted to JSON-RPC by server)
         return OutboundMessage(
             channel="anp",
             chat_id=caller_did,
-            content=final_content or "Request processed",
+            content=json.dumps(result_data, ensure_ascii=False),
             metadata={
                 "correlation_id": correlation_id,
                 "caller_did": caller_did,
