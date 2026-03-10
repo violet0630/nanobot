@@ -268,6 +268,20 @@ def gateway(
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
 
+    # Initialize ANP components
+    agent_registry = None
+    anp_client = None
+    anp_server = None
+    if config.anp.enabled:
+        from nanobot.anp.discovery import AgentRegistry
+        from nanobot.anp.client import ANPClient
+        from nanobot.anp.server import ANPServer
+
+        registry_path = str(Path(config.anp.registry_path).expanduser())
+        agent_registry = AgentRegistry(registry_path, config.anp.agent_did)
+        anp_client = ANPClient(message_bus=bus, registry=agent_registry)
+        anp_server = ANPServer(config.anp, bus)
+
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
@@ -291,6 +305,8 @@ def gateway(
         session_manager=session_manager,
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
+        agent_registry=agent_registry,
+        anp_client=anp_client,
     )
 
     # Set cron callback (needs agent)
@@ -389,14 +405,20 @@ def gateway(
 
     console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
 
+    if config.anp.enabled and anp_server:
+        console.print(f"[green]✓[/green] ANP Server: port {config.anp.server_port}, DID: {config.anp.agent_did}")
+
     async def run():
         try:
             await cron.start()
             await heartbeat.start()
-            await asyncio.gather(
-                agent.run(),
-                channels.start_all(),
-            )
+
+            # Start ANP server if enabled
+            tasks = [agent.run(), channels.start_all()]
+            if config.anp.enabled and anp_server:
+                tasks.append(anp_server.start())
+
+            await asyncio.gather(*tasks)
         except KeyboardInterrupt:
             console.print("\nShutting down...")
         finally:

@@ -18,10 +18,11 @@ class ContextBuilder:
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
 
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, agent_registry=None):
         self.workspace = workspace
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
+        self.agent_registry = agent_registry
 
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
         """Build the system prompt from identity, bootstrap files, memory, and skills."""
@@ -30,6 +31,16 @@ class ContextBuilder:
         bootstrap = self._load_bootstrap_files()
         if bootstrap:
             parts.append(bootstrap)
+
+        # Add security manager role and agent registry
+        security_prompt = self._load_security_manager_prompt()
+        if security_prompt:
+            parts.append(security_prompt)
+
+        if self.agent_registry:
+            registry_summary = self.agent_registry.get_agents_summary()
+            if registry_summary:
+                parts.append(registry_summary)
 
         memory = self.memory.get_memory_context()
         if memory:
@@ -81,13 +92,16 @@ Your workspace is at: {workspace_path}
 Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel."""
 
     @staticmethod
-    def _build_runtime_context(channel: str | None, chat_id: str | None) -> str:
+    def _build_runtime_context(channel: str | None, chat_id: str | None, sender_id: str | None = None) -> str:
         """Build untrusted runtime metadata block for injection before the user message."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
         tz = time.strftime("%Z") or "UTC"
         lines = [f"Current Time: {now} ({tz})"]
         if channel and chat_id:
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
+        if sender_id:
+            sender_type = "master" if "feishu" in sender_id else ("agent" if sender_id.startswith("did:") else "unknown")
+            lines += [f"Sender ID: {sender_id}", f"Sender Type: {sender_type}"]
         return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
 
     def _load_bootstrap_files(self) -> str:
@@ -102,6 +116,13 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 
         return "\n\n".join(parts) if parts else ""
 
+    def _load_security_manager_prompt(self) -> str:
+        """Load security manager prompt from agent/prompts directory."""
+        prompt_path = Path(__file__).parent / "prompts" / "security_manager.md"
+        if prompt_path.exists():
+            return prompt_path.read_text(encoding="utf-8")
+        return ""
+
     def build_messages(
         self,
         history: list[dict[str, Any]],
@@ -110,12 +131,13 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         media: list[str] | None = None,
         channel: str | None = None,
         chat_id: str | None = None,
+        sender_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
         return [
             {"role": "system", "content": self.build_system_prompt(skill_names)},
             *history,
-            {"role": "user", "content": self._build_runtime_context(channel, chat_id)},
+            {"role": "user", "content": self._build_runtime_context(channel, chat_id, sender_id)},
             {"role": "user", "content": self._build_user_content(current_message, media)},
         ]
 

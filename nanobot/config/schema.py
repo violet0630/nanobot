@@ -281,6 +281,15 @@ class GatewayConfig(Base):
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
 
 
+class ANPConfig(Base):
+    """ANP (Agent Network Protocol) configuration."""
+
+    enabled: bool = True
+    agent_did: str = "did:wba:home.local:security-manager"
+    server_port: int = 8000
+    registry_path: str = "~/agent_registry.json"
+
+
 class WebSearchConfig(Base):
     """Web search tool configuration."""
 
@@ -330,6 +339,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    anp: ANPConfig = Field(default_factory=ANPConfig)
 
     @property
     def workspace_path(self) -> Path:

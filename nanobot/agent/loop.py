@@ -65,6 +65,8 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        agent_registry=None,
+        anp_client=None,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -82,8 +84,10 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.agent_registry = agent_registry
+        self.anp_client = anp_client
 
-        self.context = ContextBuilder(workspace)
+        self.context = ContextBuilder(workspace, agent_registry=agent_registry)
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
         self.subagents = SubagentManager(
@@ -125,7 +129,14 @@ class AgentLoop:
         ))
         self.tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
         self.tools.register(WebFetchTool(proxy=self.web_proxy))
-        self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
+
+        # Use SendMessageTool if ANP is enabled, otherwise use MessageTool
+        if self.anp_client:
+            from nanobot.agent.tools.send_message_tool import SendMessageTool
+            self.tools.register(SendMessageTool(anp_client=self.anp_client, current_chat_id=""))
+        else:
+            self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
+
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
@@ -158,6 +169,14 @@ class AgentLoop:
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
+
+        # Update SendMessageTool context
+        if send_tool := self.tools.get("send_message"):
+            send_tool.current_chat_id = chat_id
+            send_tool.current_channel = channel
+            # Remember feishu chat_id so ANP messages can reply to user
+            if channel == "feishu" and chat_id:
+                send_tool._last_feishu_chat_id = chat_id
 
     @staticmethod
     def _strip_think(text: str | None) -> str | None:
@@ -346,6 +365,7 @@ class AgentLoop:
             messages = self.context.build_messages(
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
+                sender_id=msg.sender_id,
             )
             final_content, _, all_msgs = await self._run_agent_loop(messages)
             self._save_turn(session, all_msgs, 1 + len(history))
@@ -422,6 +442,7 @@ class AgentLoop:
             current_message=msg.content,
             media=msg.media if msg.media else None,
             channel=msg.channel, chat_id=msg.chat_id,
+            sender_id=msg.sender_id,
         )
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
