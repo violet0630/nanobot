@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nanobot Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#fef2f2', 100: '#fee2e2', 500: '#ef4444', 600: '#dc2626' },
+                        surface: '#FAFAFA',
+                        borderLight: '#F3F4F6'
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+                        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="bg-surface text-gray-800 h-screen flex overflow-hidden font-sans antialiased selection:bg-brand-100 selection:text-brand-600">
+
+    <!-- ===== Sidebar ===== -->
+    <aside class="w-[260px] bg-white border-r border-gray-100 flex flex-col shrink-0">
+        <!-- Logo -->
+        <div class="h-16 flex items-center px-5 mb-2">
+            <div class="w-7 h-7 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center mr-3">
+                <i data-lucide="bot" class="w-4 h-4 text-gray-600"></i>
+            </div>
+            <div class="flex flex-col">
+                <span class="text-sm font-semibold text-gray-800">Nanobot Local</span>
+                <span class="text-[11px] text-gray-400">Agent Dashboard</span>
+            </div>
+        </div>
+
+        <!-- Nav -->
+        <nav class="flex-1 overflow-y-auto px-3 space-y-6">
+            <!-- MAIN -->
+            <div>
+                <div class="px-2 text-[11px] font-medium text-gray-400 mb-1.5 flex items-center justify-between">
+                    <span>Main</span>
+                    <i data-lucide="minus" class="w-3 h-3 opacity-50"></i>
+                </div>
+                <button id="nav-home" onclick="App.switchToHome()" class="nav-btn w-full flex items-center px-2.5 py-2 text-sm bg-brand-50 text-brand-600 font-medium rounded-lg transition-colors">
+                    <i data-lucide="message-square" class="w-4 h-4 mr-3 opacity-90"></i>
+                    <span>Home (Local Agent)</span>
+                </button>
+            </div>
+
+            <!-- NETWORK -->
+            <div>
+                <div class="px-2 text-[11px] font-medium text-gray-400 mb-1.5 flex items-center justify-between">
+                    <span>Network</span>
+                    <i data-lucide="minus" class="w-3 h-3 opacity-50"></i>
+                </div>
+                <button onclick="App.toggleNodes()" class="w-full flex items-center justify-between px-2.5 py-2 text-sm text-gray-800 font-medium hover:bg-gray-50 rounded-lg transition-colors group">
+                    <div class="flex items-center">
+                        <i data-lucide="network" class="w-4 h-4 mr-3 opacity-70 text-gray-500"></i>
+                        <span>Nodes</span>
+                        <span id="nodes-count" class="ml-2 text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full"></span>
+                    </div>
+                    <i data-lucide="chevron-down" id="nodes-chevron" class="w-4 h-4 text-gray-400 transition-transform duration-300"></i>
+                </button>
+                <!-- Dynamic node list -->
+                <div id="nodes-list" class="pl-7 pr-2 mt-1 space-y-0.5 overflow-hidden transition-all duration-300" style="max-height: 500px;">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- AGENT -->
+            <div>
+                <div class="px-2 text-[11px] font-medium text-gray-400 mb-1.5 flex items-center justify-between">
+                    <span>Agent</span>
+                    <i data-lucide="minus" class="w-3 h-3 opacity-50"></i>
+                </div>
+                <button class="w-full flex items-center px-2.5 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg transition-colors opacity-50 cursor-not-allowed">
+                    <i data-lucide="zap" class="w-4 h-4 mr-3 opacity-70"></i>
+                    <span>Skills</span>
+                </button>
+                <button class="w-full flex items-center px-2.5 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg transition-colors opacity-50 cursor-not-allowed">
+                    <i data-lucide="history" class="w-4 h-4 mr-3 opacity-70"></i>
+                    <span>Sessions</span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- Connection status -->
+        <div class="p-4 mt-auto">
+            <div id="ws-status" class="flex items-center px-2.5 py-2 text-sm text-gray-500 rounded-lg">
+                <span class="w-2 h-2 rounded-full bg-gray-300 mr-3" id="ws-dot"></span>
+                <span id="ws-text">Connecting...</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ===== Workspace ===== -->
+    <main class="flex-1 flex flex-col relative h-full bg-surface">
+
+        <!-- ===== Home View ===== -->
+        <div id="view-home" class="page-view flex flex-col h-full fade-in">
+            <header class="bg-white border-b border-gray-100 shrink-0 px-8 py-6 shadow-[0_4px_20px_-15px_rgba(0,0,0,0.05)] z-10">
+                <div class="max-w-4xl mx-auto">
+                    <div class="flex items-start justify-between">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200 flex items-center justify-center shadow-sm">
+                                <i data-lucide="bot" class="w-6 h-6 text-gray-600"></i>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2.5 mb-1">
+                                    <h2 class="text-xl font-semibold text-gray-900 tracking-tight">Local Manager Agent</h2>
+                                    <span class="px-2 py-0.5 rounded-md text-[10px] font-medium text-gray-600 bg-gray-50 border border-gray-200 flex items-center gap-1.5">
+                                        <i data-lucide="activity" class="w-3 h-3"></i> Active
+                                    </span>
+                                </div>
+                                <p class="text-sm text-gray-500">你本机的主控 Agent，负责调度全网节点、分配任务及执行本地脚本。</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-5 flex items-center flex-wrap gap-x-6 gap-y-3">
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="text-gray-400 font-medium text-[11px] uppercase tracking-wide">Network Nodes</span>
+                            <span id="home-node-count" class="text-[12px] text-gray-600 font-medium">0 Connected</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Chat area -->
+            <div id="home-chat" class="flex-1 overflow-y-auto p-8 relative">
+                <div id="home-messages" class="max-w-4xl mx-auto space-y-6 pb-4">
+                    <!-- Welcome message -->
+                    <div class="flex items-center justify-center my-4">
+                        <span class="px-3 py-1 bg-white border border-gray-100 rounded-full text-[11px] font-medium text-gray-400 shadow-sm">Start a conversation with your local agent</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Input -->
+            <div class="p-5 bg-surface border-t border-gray-100 shrink-0">
+                <div class="max-w-4xl mx-auto relative flex items-end bg-white border border-gray-200 focus-within:border-gray-300 focus-within:shadow-[0_0_0_4px_rgba(0,0,0,0.02)] rounded-2xl p-2 transition-all duration-200">
+                    <button class="p-2.5 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-50 transition-colors shrink-0">
+                        <i data-lucide="paperclip" class="w-5 h-5"></i>
+                    </button>
+                    <textarea id="home-input" rows="1" class="w-full bg-transparent border-none focus:ring-0 text-[14px] text-gray-800 placeholder-gray-400 resize-none py-3 px-2 mx-1 max-h-32" placeholder="Command Local Agent..." onkeydown="App.handleHomeKey(event)"></textarea>
+                    <button onclick="App.sendHomeMessage()" class="p-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors shadow-sm shrink-0">
+                        <i data-lucide="arrow-up" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===== Node View (dynamic, one per node) ===== -->
+        <div id="view-node" class="page-view flex flex-col h-full hidden fade-in">
+            <header id="node-header" class="bg-white border-b border-gray-100 shrink-0 px-8 py-6 shadow-[0_4px_20px_-15px_rgba(0,0,0,0.05)] z-10">
+                <div class="max-w-4xl mx-auto">
+                    <div class="flex items-start justify-between">
+                        <div class="flex items-center gap-4">
+                            <div id="node-icon" class="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 flex items-center justify-center shadow-sm">
+                                <i data-lucide="shield-check" class="w-6 h-6 text-emerald-600"></i>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2.5 mb-1">
+                                    <h2 id="node-name" class="text-xl font-semibold text-gray-900 tracking-tight"></h2>
+                                    <span class="px-2 py-0.5 rounded-md text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 flex items-center gap-1.5">
+                                        <span class="w-1 h-1 rounded-full bg-emerald-500"></span> Online
+                                    </span>
+                                </div>
+                                <p id="node-desc" class="text-sm text-gray-500"></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-5 flex items-center flex-wrap gap-x-6 gap-y-3">
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="text-gray-400 font-medium text-[11px] uppercase tracking-wide">DID</span>
+                            <code id="node-did" class="text-[13px] text-gray-600 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-md font-mono"></code>
+                        </div>
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="text-gray-400 font-medium text-[11px] uppercase tracking-wide">Endpoint</span>
+                            <span id="node-endpoint" class="text-[13px] text-gray-600 flex items-center gap-1">
+                                <i data-lucide="link-2" class="w-3 h-3 text-gray-400"></i>
+                                <span></span>
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="text-gray-400 font-medium text-[11px] uppercase tracking-wide">Skills</span>
+                            <div id="node-skills" class="flex items-center gap-1.5"></div>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Node chat area -->
+            <div id="node-chat" class="flex-1 overflow-y-auto p-8 relative">
+                <div id="node-messages" class="max-w-4xl mx-auto space-y-6 pb-4">
+                    <div class="flex items-center justify-center my-4">
+                        <span class="px-3 py-1 bg-white border border-gray-100 rounded-full text-[11px] font-medium text-gray-400 shadow-sm">Messages with this node will appear here</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Node input -->
+            <div class="p-5 bg-surface border-t border-gray-100 shrink-0">
+                <div class="max-w-4xl mx-auto relative flex items-end bg-white border border-gray-200 focus-within:border-gray-300 focus-within:shadow-[0_0_0_4px_rgba(0,0,0,0.02)] rounded-2xl p-2 transition-all duration-200">
+                    <button class="p-2.5 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-50 transition-colors shrink-0">
+                        <i data-lucide="paperclip" class="w-5 h-5"></i>
+                    </button>
+                    <textarea id="node-input" rows="1" class="w-full bg-transparent border-none focus:ring-0 text-[14px] text-gray-800 placeholder-gray-400 resize-none py-3 px-2 mx-1 max-h-32" placeholder="Message this agent..." onkeydown="App.handleNodeKey(event)"></textarea>
+                    <button onclick="App.sendNodeMessage()" class="p-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors shadow-sm shrink-0">
+                        <i data-lucide="arrow-up" class="w-5 h-5"></i>
+                    </button>
+                </div>
+                <div class="max-w-4xl mx-auto mt-2 text-center">
+                    <span class="text-[10px] text-gray-400">Local Agent will relay this message via ANP protocol. Press <kbd class="font-sans px-1 rounded bg-gray-100 border border-gray-200">Enter</kbd> to send.</span>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

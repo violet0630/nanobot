@@ -1,13 +1,12 @@
-"""Agent discovery and registry."""
+"""Agent discovery and registry, with OpenANP ad.json support."""
 
 import json
-import os
 from pathlib import Path
 from typing import Optional
 
 
 class AgentRegistry:
-    """Registry for managing agent information."""
+    """Registry for managing agent information, supports ad.json discovery."""
 
     def __init__(self, registry_path: str, self_did: str = ""):
         """Initialize agent registry.
@@ -53,6 +52,8 @@ class AgentRegistry:
         for agent in self.agents.values():
             lines.append(f"- **{agent['name']}** (`{agent['did']}`)")
             lines.append(f"  描述: {agent['description']}")
+            if agent.get("ad_url"):
+                lines.append(f"  发现地址: {agent['ad_url']}")
             if agent.get("capabilities"):
                 lines.append(f"  能力: {', '.join(agent['capabilities'])}")
             lines.append("")

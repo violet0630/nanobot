@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nanobot Agent Workspace</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Lucide 图标 -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <script>
+        // 定制柔和的现代化主题色
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        // 模仿你截图中的那抹柔和的红色/粉色选中态
+                        brand: { 50: '#fef2f2', 100: '#fee2e2', 500: '#ef4444', 600: '#dc2626' },
+                        // 主背景和边框色
+                        surface: '#FAFAFA',
+                        borderLight: '#F3F4F6'
+                    },
+                    fontFamily: {
+                        sans:['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+                        mono:['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* 优雅的隐藏/极简滚动条 */
+        ::-webkit-scrollbar { width: 4px; height: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #E5E7EB; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #D1D5DB; }
+        
+        /* 平滑淡入动画 */
+        .fade-in { animation: fadeIn 0.2s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* 下拉菜单弹出动画 */
+        .dropdown-open { animation: scaleIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards; transform-origin: top right; }
+        @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+    </style>
+</head>
+<body class="bg-surface text-gray-800 h-screen flex overflow-hidden font-sans antialiased selection:bg-brand-100 selection:text-brand-600" onclick="closeAllDropdowns(event)">
+
+    <!-- ================= 左侧：极简侧边栏 (Sidebar) ================= -->
+    <aside class="w-[260px] bg-white border-r border-gray-100 flex flex-col shrink-0">
+        
+        <!-- 用户/系统信息 -->
+        <div class="h-16 flex items-center px-5 mb-2">
+            <div class="w-7 h-7 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center mr-3">
+                <i data-lucide="bot" class="w-4 h-4 text-gray-600"></i>
+            </div>
+            <div class="flex flex-col">
+                <span class="text-sm font-semibold text-gray-800">Nanobot Local</span>
+                <span class="text-[11px] text-gray-400">Safe Agent</span>
+            </div>
+        </div>
+
+        <!-- 导航菜单 -->
+        <nav class="flex-1 overflow-y-auto px-3 space-y-6">
+            
+            <!-- 分组 1: MAIN -->
+            <div>
+                <div class="px-2 text-[11px] font-medium text-gray-400 mb-1.5 flex items-center justify-between">
+                    <span>Main</span>
+                    <i data-lucide="minus" class="w-3 h-3 opacity-50"></i>
+                </div>
+                <button id="nav-home" onclick="switchPage('view-home', 'nav-home')" class="nav-btn w-full flex items-center px-2.5 py-2 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-800 rounded-lg transition-colors">
+                    <i data-lucide="message-square" class="w-4 h-4 mr-3 opacity-70"></i>
+                    <span>Home (Local Agent)</span>
+                </button>
+            </div>
+
+            <!-- 分组 2: NETWORK (折叠展开 Nodes) -->
+            <div>
+                <div class="px-2 text-[11px] font-medium text-gray-400 mb-1.5 flex items-center justify-between">
+                    <span>Network</span>
+                    <i data-lucide="minus" class="w-3 h-3 opacity-50"></i>
+                </div>
+                <!-- 父级分类 (可折叠) -->
+                <button onclick="toggleNodes()" class="w-full flex items-center justify-between px-2.5 py-2 text-sm text-gray-800 font-medium hover:bg-gray-50 rounded-lg transition-colors group">
+                    <div class="flex items-center">
+                        <i data-lucide="network" class="w-4 h-4 mr-3 opacity-70 text-gray-500"></i>
+                        <span>Nodes</span>
+                    </div>
+                    <i data-lucide="chevron-down" id="nodes-chevron" class="w-4 h-4 text-gray-400 transition-transform duration-300"></i>
+                </button>
+                
+                <!-- 子节点列表 (缩进排列)，添加动画容器 -->
+                <div id="nodes-list" class="pl-7 pr-2 mt-1 space-y-0.5 overflow-hidden transition-all duration-300" style="max-height: 200px;">
+                    <!-- 选中的节点 (高亮：模仿截图中的红色柔和背景) -->
+                    <button id="nav-node-sec" onclick="switchPage('view-node-sec', 'nav-node-sec')" class="nav-btn w-full flex items-center px-2.5 py-2 text-[13px] bg-brand-50 text-brand-600 font-medium rounded-lg transition-colors">
+                        <i data-lucide="shield-check" class="w-4 h-4 mr-2.5"></i>
+                        <span class="flex-1 text-left truncate">Home Security</span>
+                        <!-- 在线绿点 -->
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    </button>
+                    <!-- 未选中的节点 -->
+                    <button class="w-full flex items-center px-2.5 py-2 text-[13px] text-gray-500 hover:bg-gray-50 hover:text-gray-800 rounded-lg transition-colors">
+                        <i data-lucide="database" class="w-4 h-4 mr-2.5 opacity-70"></i>
+                        <span class="flex-1 text-left truncate">Data Storage</span>
+                    </button>
+                    <!-- 未选中的节点 -->
+                    <button class="w-full flex items-center px-2.5 py-2 text-[13px] text-gray-500 hover:bg-gray-50 hover:text-gray-800 rounded-lg transition-colors">
+                        <i data-lucide="server" class="w-4 h-4 mr-2.5 opacity-70"></i>
+                        <span class="flex-1 text-left truncate">Router Gateway</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 分组 3: AGENT -->
+            <div>
+                <div class="px-2 text-[11px] font-medium text-gray-400 mb-1.5 flex items-center justify-between">
+                    <span>Agent</span>
+                    <i data-lucide="minus" class="w-3 h-3 opacity-50"></i>
+                </div>
+                <button class="w-full flex items-center px-2.5 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-lg transition-colors">
+                    <i data-lucide="zap" class="w-4 h-4 mr-3 opacity-70"></i>
+                    <span>Skills</span>
+                </button>
+                <button id="nav-sessions" onclick="switchPage('view-sessions', 'nav-sessions')" class="nav-btn w-full flex items-center px-2.5 py-2 text-sm text-gray-500 hover:bg-gray-50 hover:text-gray-800 rounded-lg transition-colors">
+                    <i data-lucide="history" class="w-4 h-4 mr-3 opacity-70"></i>
+                    <span>Sessions</span>
+                </button>
+            </div>
+            
+        </nav>
+
+        <!-- 底部设置 -->
+        <div class="p-4 mt-auto">
+            <button class="w-full flex items-center px-2.5 py-2 text-sm text-gray-500 hover:bg-gray-50 rounded-lg transition-colors">
+                <i data-lucide="settings" class="w-4 h-4 mr-3 opacity-70"></i>
+                <span>Settings</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- ================= 右侧：工作区 (Workspace) ================= -->
+    <main class="flex-1 flex flex-col relative h-full bg-surface">
+        
+        <!-- ================= 视图 A：HOME (本机 Local Agent) ================= -->
+        <div id="view-home" class="page-view flex flex-col h-full hidden fade-in">
+            <!-- 头部 Profile -->
+            <header class="bg-white border-b border-gray-100 shrink-0 px-8 py-6 shadow-[0_4px_20px_-15px_rgba(0,0,0,0.05)] z-10">
+                <div class="max-w-4xl mx-auto">
+                    <div class="flex items-start justify-between">
+                        <div class="flex items-center gap-4">
+                            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-gray-50 to-gray-100 border border-gray-200 flex items-center justify-center shadow-sm">
+                                <i data-lucide="bot" class="w-6 h-6 text-gray-600"></i>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2.5 mb-1">
+                                    <h2 class="text-xl font-semibold text-gray-900 tracking-tight">Local Manager Agent</h2>
+                                    <span class="px-2 py-0.5 rounded-md text-[10px] font-medium text-gray-600 bg-gray-50 border border-gray-200 flex items-center gap-1.5">
+                                        <i data-lucide="activity" class="w-3 h-3"></i> Active
+                                    </span>
+                                </div>
+                                <p class="text-sm text-gray-500">你本机的主控 Agent，负责调度全网节点、分配任务及执行本地脚本。</p>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 本机参数 -->
+                    <div class="mt-5 flex items-center flex-wrap gap-x-6 gap-y-3">
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="text-gray-400 font-medium text-[11px] uppercase tracking-wide">System Load</span>
+                            <span class="text-[12px] text-gray-600 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-md font-mono flex items-center gap-1.5">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> CPU: 12% | RAM: 2.4GB
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="text-gray-400 font-medium text-[11px] uppercase tracking-wide">Network Nodes</span>
+                            <span class="text-[12px] text-gray-600 font-medium">3 Connected</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- 聊天记录区 -->
+            <div class="flex-1 overflow-y-auto p-8 relative">
+                <div class="max-w-4xl mx-auto space-y-8 pb-4">
+                    
+                    <div class="flex items-center justify-center my-4">
+                        <span class="px-3 py-1 bg-white border border-gray-100 rounded-full text-[11px] font-medium text-gray-400 shadow-sm">Today, 09:00 AM</span>
+                    </div>
+
+                    <!-- 用户发送 (Me) -->
+                    <div class="flex justify-end group">
+                        <div class="max-w-[80%] flex flex-col items-end">
+                            <div class="flex items-center space-x-2 mb-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <span class="text-[11px] text-gray-400">09:12:05</span>
+                                <span class="text-[11px] font-medium text-gray-500">You (Admin)</span>
+                            </div>
+                            <div class="bg-gray-800 text-white rounded-2xl rounded-tr-sm p-4 w-full shadow-md text-[14px]">
+                                扫描一下当前网络中的新节点，看看有没有未认证的设备接入。
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 本机 Agent 回复 (Local) -->
+                    <div class="flex justify-start group">
+                        <div class="max-w-[80%] flex flex-col items-start">
+                            <div class="flex items-center gap-2 mb-1.5 px-1">
+                                <div class="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center border border-gray-200">
+                                    <i data-lucide="bot" class="w-3 h-3 text-gray-600"></i>
+                                </div>
+                                <span class="text-[11px] font-medium text-gray-600">Local Agent</span>
+                            </div>
+                            <div class="bg-white border border-gray-100 rounded-2xl rounded-tl-sm p-4 w-full shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] text-gray-700 text-[14px] leading-relaxed">
+                                <p class="mb-3">正在执行 ANP 广播发现协议... 探测完毕。</p>
+                                <p>我在当前网段发现了 <strong>1</strong> 个新的活跃节点，尚未加入信任网络：</p>
+                                <!-- 发现的新节点卡片 -->
+                                <div class="bg-gray-50 border border-gray-100 rounded-lg p-3 mt-3 flex items-center justify-between">
+                                    <div class="flex items-center gap-3">
+                                        <i data-lucide="router" class="w-5 h-5 text-gray-400"></i>
+                                        <div>
+                                            <div class="text-[13px] font-semibold text-gray-800">Smart Router Gateway</div>
+                                            <div class="text-[11px] text-gray-500 font-mono">192.168.1.1:8080/anp</div>
+                                        </div>
+                                    </div>
+                                    <button class="px-3 py-1.5 bg-white border border-gray-200 text-[12px] font-medium text-gray-700 rounded-md shadow-sm hover:bg-gray-50 transition">
+                                        Approve & Add
+                                    </button>
+                                </div>
+                                <p class="mt-3 text-[13px] text-gray-500">你需要我向它发送握手验证吗？</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 输入框 -->
+            <div class="p-5 bg-surface border-t border-gray-100 shrink-0">
+                <div class="max-w-4xl mx-auto relative flex items-end bg-white border border-gray-200 focus-within:border-gray-300 focus-within:shadow-[0_0_0_4px_rgba(0,0,0,0.02)] rounded-2xl p-2 transition-all duration-200">
+                    <button class="p-2.5 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-50 transition-colors shrink-0">
+                        <i data-lucide="paperclip" class="w-5 h-5"></i>
+                    </button>
+                    <textarea rows="1" class="w-full bg-transparent border-none focus:ring-0 text-[14px] text-gray-800 placeholder-gray-400 resize-none py-3 px-2 mx-1 max-h-32" style="outline: none;" placeholder="Command Local Agent..."></textarea>
+                    <button class="p-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors shadow-sm shrink-0">
+                        <i data-lucide="arrow-up" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= 视图 B：NODE (远程 Home Security Agent) ================= -->
+        <div id="view-node-sec" class="page-view flex flex-col h-full fade-in">
+        <!-- ================= 1. Agent Profile (顶部卡片) ================= -->
+        <header class="bg-white border-b border-gray-100 shrink-0 px-8 py-6 shadow-[0_4px_20px_-15px_rgba(0,0,0,0.05)] z-10">
+            <div class="max-w-4xl mx-auto">
+                <div class="flex items-start justify-between">
+                    <div class="flex items-center gap-4">
+                        <!-- 头像 -->
+                        <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200 flex items-center justify-center shadow-sm">
+                            <i data-lucide="shield-check" class="w-6 h-6 text-emerald-600"></i>
+                        </div>
+                        <!-- 核心信息 -->
+                        <div>
+                            <div class="flex items-center gap-2.5 mb-1">
+                                <h2 class="text-xl font-semibold text-gray-900 tracking-tight">Home Security Agent</h2>
+                                <span class="px-2 py-0.5 rounded-md text-[10px] font-medium text-emerald-600 bg-emerald-50 border border-emerald-100 flex items-center gap-1.5">
+                                    <span class="w-1 h-1 rounded-full bg-emerald-500"></span> Online
+                                </span>
+                            </div>
+                            <p class="text-sm text-gray-500">负责监控家庭内网 IOT 设备行为，执行本地安全策略拦截异常请求。</p>
+                        </div>
+                    </div>
+                    
+                    <!-- 快捷操作按钮 -->
+                    <div class="flex items-center gap-2">
+                        <button class="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg transition border border-transparent hover:border-gray-200">
+                            <i data-lucide="more-horizontal" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 详细参数区 (折叠在一行) -->
+                <div class="mt-5 flex items-center flex-wrap gap-x-6 gap-y-3">
+                    <!-- DID -->
+                    <div class="flex items-center gap-2 text-sm">
+                        <span class="text-gray-400 font-medium text-[11px] uppercase tracking-wide">DID</span>
+                        <code class="text-[13px] text-gray-600 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded-md font-mono">did:wba:home.local:sec-01</code>
+                    </div>
+                    <!-- Endpoint -->
+                    <div class="flex items-center gap-2 text-sm">
+                        <span class="text-gray-400 font-medium text-[11px] uppercase tracking-wide">Endpoint</span>
+                        <span class="text-[13px] text-gray-600 flex items-center gap-1">
+                            <i data-lucide="link-2" class="w-3 h-3 text-gray-400"></i>
+                            http://192.168.1.100:8081/anp
+                        </span>
+                    </div>
+                    <!-- Capabilities -->
+                    <div class="flex items-center gap-2 text-sm">
+                        <span class="text-gray-400 font-medium text-[11px] uppercase tracking-wide">Skills</span>
+                        <div class="flex items-center gap-1.5">
+                            <span class="text-[11px] px-2 py-0.5 rounded-md bg-gray-50 text-gray-500 border border-gray-100 font-mono">security_check</span>
+                            <span class="text-[11px] px-2 py-0.5 rounded-md bg-gray-50 text-gray-500 border border-gray-100 font-mono">iot_monitor</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- ================= 2. 交互历史记录 (Chat Area) ================= -->
+        <div class="flex-1 overflow-y-auto p-8 relative">
+            <div class="max-w-4xl mx-auto space-y-8 pb-4">
+                
+                <!-- 时间戳分隔 -->
+                <div class="flex items-center justify-center my-4">
+                    <span class="px-3 py-1 bg-white border border-gray-100 rounded-full text-[11px] font-medium text-gray-400 shadow-sm">
+                        Today, 19:42 PM
+                    </span>
+                </div>
+
+                <!-- 【右侧】本机的 Agent 发出的消息 -->
+                <div class="flex justify-end group">
+                    <div class="max-w-[80%] flex flex-col items-end">
+                        <div class="flex items-center space-x-2 mb-1.5 px-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <span class="text-[11px] text-gray-400">19:42:10</span>
+                            <span class="text-[11px] font-medium text-gray-500">Local Agent (Me)</span>
+                        </div>
+                        <!-- 发出的气泡：采用柔和的蓝色/深色背景 -->
+                        <div class="bg-gray-800 text-white rounded-2xl rounded-tr-sm p-4 w-full shadow-md">
+                            <div class="flex items-center gap-2 text-[13px] mb-3 opacity-90">
+                                <i data-lucide="send" class="w-4 h-4"></i>
+                                <span>执行网络协议请求：<code class="font-mono bg-white/10 px-1.5 py-0.5 rounded text-[12px]">check_vulnerability</code></span>
+                            </div>
+                            <!-- JSON 负载 (现代化浅色展示) -->
+                            <div class="bg-gray-900 border border-gray-700/50 rounded-lg overflow-hidden mt-2">
+                                <div class="px-3 py-1.5 bg-gray-800/50 text-[10px] text-gray-400 font-medium flex justify-between items-center uppercase tracking-wide">
+                                    Payload
+                                    <i data-lucide="code-2" class="w-3 h-3"></i>
+                                </div>
+                                <div class="p-3 overflow-x-auto">
+                                    <pre class="text-[12px] font-mono text-gray-300 leading-relaxed">{
+  "target_device": "smart_lock_main_door",
+  "scan_level": "deep"
+}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 【左侧】远程节点 Agent 的回复 -->
+                <div class="flex justify-start group">
+                    <div class="max-w-[80%] flex flex-col items-start">
+                        <div class="flex items-center gap-2 mb-1.5 px-1">
+                            <div class="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center border border-emerald-200">
+                                <i data-lucide="shield-check" class="w-3 h-3 text-emerald-600"></i>
+                            </div>
+                            <span class="text-[11px] font-medium text-gray-600">Home Security</span>
+                            <span class="text-[11px] text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity">19:42:15 (+5s)</span>
+                        </div>
+                        <!-- 收到的气泡：纯白底色带柔和阴影，添加点击事件追踪溯源 -->
+                        <div onclick="showTraceTimeline()" class="bg-white border border-gray-100 rounded-2xl rounded-tl-sm p-4 w-full shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] text-gray-700 text-[14px] leading-relaxed cursor-pointer hover:border-emerald-200 transition-colors relative group/bubble">
+                            <!-- 悬浮提示 -->
+                            <div class="absolute -top-7 right-0 bg-gray-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover/bubble:opacity-100 transition-opacity">
+                                Click to view trace timeline
+                            </div>
+                            <p class="mb-3">我已经完成了对 <code>smart_lock_main_door</code> 的深度扫描。未发现任何异常漏洞，固件版本为最新的 v2.1.0。</p>
+                            
+                            <!-- 返回的数据负载 -->
+                            <div class="bg-gray-50 border border-gray-100 rounded-lg overflow-hidden mt-3">
+                                <div class="px-3 py-1.5 bg-gray-100/50 text-[10px] text-gray-400 font-medium border-b border-gray-100 flex justify-between items-center uppercase tracking-wide">
+                                    Response Data
+                                </div>
+                                <div class="p-3 overflow-x-auto">
+                                    <pre class="text-[12px] font-mono text-gray-600 leading-relaxed">{
+  "status": "safe",
+  "code": 200,
+  "details": "No vulnerabilities found.",
+  "last_ping": "12ms"
+}</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- ================= 3. 对话输入区 (Input Window) ================= -->
+        <div class="p-5 bg-surface border-t border-gray-100 shrink-0">
+            <div class="max-w-4xl mx-auto relative flex items-end bg-white border border-gray-200 focus-within:border-gray-300 focus-within:shadow-[0_0_0_4px_rgba(0,0,0,0.02)] rounded-2xl p-2 transition-all duration-200">
+                
+                <!-- 附件按钮 -->
+                <button class="p-2.5 text-gray-400 hover:text-gray-600 rounded-xl hover:bg-gray-50 transition-colors shrink-0">
+                    <i data-lucide="paperclip" class="w-5 h-5"></i>
+                </button>
+                
+                <!-- 文本输入框 -->
+                <textarea 
+                    rows="1" 
+                    class="w-full bg-transparent border-none focus:ring-0 text-[14px] text-gray-800 placeholder-gray-400 resize-none py-3 px-2 mx-1 max-h-32" 
+                    placeholder="Message Home Security Agent..."
+                    style="outline: none;"
+                ></textarea>
+                
+                <!-- 发送按钮 -->
+                <button class="p-2.5 bg-gray-900 text-white rounded-xl hover:bg-gray-800 transition-colors shadow-sm shrink-0">
+                    <i data-lucide="arrow-up" class="w-5 h-5"></i>
+                </button>
+
+            </div>
+            <div class="max-w-4xl mx-auto mt-2 text-center">
+                <span class="text-[10px] text-gray-400">Local Agent will send this request via ANP protocol. Press <kbd class="font-sans px-1 rounded bg-gray-100 border border-gray-200">Enter</kbd> to send.</span>
+            </div>
+        </div>
+        </div>
+
+        <!-- ================= 视图 C：SESSIONS (历史记录) ================= -->
+        <div id="view-sessions" class="page-view flex flex-col h-full hidden fade-in">
+            
+            <!-- Header -->
+            <header class="bg-white border-b border-gray-100 shrink-0 px-8 py-6 shadow-[0_4px_20px_-15px_rgba(0,0,0,0.05)] z-10">
+                <div class="max-w-4xl mx-auto flex items-end justify-between">
+                    <div>
+                        <div class="flex items-center gap-2.5 mb-1.5">
+                            <h2 class="text-xl font-semibold text-gray-900 tracking-tight">Sessions</h2>
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-medium text-gray-500 bg-gray-100 border border-gray-200" id="session-count">3 Total</span>
+                        </div>
+                        <p class="text-sm text-gray-500">查看、置顶或删除你与各个 Agent 节点产生的历史交互会话记录。</p>
+                    </div>
+                    <!-- 搜索框辅助 -->
+                    <div class="relative w-64 hidden md:block">
+                        <i data-lucide="search" class="w-4 h-4 text-gray-400 absolute left-3 top-2.5"></i>
+                        <input type="text" id="session-search" placeholder="Search sessions..." onkeyup="filterSessions(event)" class="w-full pl-9 pr-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:border-gray-300 focus:bg-white transition-colors placeholder:text-gray-400">
+                    </div>
+                </div>
+            </header>
+
+            <!-- 会话列表主体 -->
+            <div class="flex-1 overflow-y-auto p-8 relative">
+                <div class="max-w-4xl mx-auto space-y-8 pb-4">
+                    
+                    <!-- 分区 1：置顶会话 (Pinned) -->
+                    <div id="pinned-section">
+                        <div class="flex items-center gap-2 text-[11px] font-semibold text-gray-400 tracking-wider uppercase mb-3 px-1">
+                            <i data-lucide="pin" class="w-3.5 h-3.5"></i>
+                            <span>Pinned Sessions</span>
+                        </div>
+                        
+                        <div id="pinned-list">
+                            <!-- 置顶项 1 -->
+                            <div class="session-item group relative flex items-center justify-between p-4 bg-white border border-gray-200 rounded-2xl hover:border-gray-300 hover:shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] transition-all mb-3" data-title="Deep Scan for smart_lock_main_door">
+                                <div class="flex items-center gap-4 cursor-pointer flex-1">
+                                    <!-- Agent 图标 -->
+                                    <div class="w-10 h-10 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+                                        <i data-lucide="shield-check" class="w-5 h-5"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-[14px] font-medium text-gray-900 mb-0.5">Deep Scan for smart_lock_main_door</h3>
+                                        <div class="flex items-center gap-2 text-[12px] text-gray-500">
+                                            <span class="font-medium text-emerald-600">Home Security</span>
+                                            <span class="w-1 h-1 rounded-full bg-gray-300"></span>
+                                            <span>March 10, 2026 - 19:42 PM</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- 三个点操作菜单区 -->
+                                <div class="relative">
+                                    <button onclick="toggleMenu(event, 'menu-1')" class="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors">
+                                        <i data-lucide="more-horizontal" class="w-5 h-5 pointer-events-none"></i>
+                                    </button>
+                                    <!-- Dropdown -->
+                                    <div id="menu-1" class="dropdown-menu hidden absolute right-0 mt-1 w-44 bg-white border border-gray-100 rounded-xl shadow-[0_10px_30px_-10px_rgba(0,0,0,0.1)] py-1 z-50">
+                                        <button onclick="unpinSession(event, this)" class="w-full text-left px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors">
+                                            <i data-lucide="pin-off" class="w-3.5 h-3.5"></i> 取消置顶
+                                        </button>
+                                        <button onclick="showFlowDiagram(event)" class="w-full text-left px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors">
+                                            <i data-lucide="network" class="w-3.5 h-3.5"></i> 查看通讯日志
+                                        </button>
+                                        <button onclick="exportTraceReport(event)" class="w-full text-left px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors">
+                                            <i data-lucide="download" class="w-3.5 h-3.5"></i> 导出溯源报告
+                                        </button>
+                                        <div class="h-px bg-gray-100 my-1"></div>
+                                        <button onclick="deleteSession(event, this)" class="w-full text-left px-3 py-2 text-[13px] text-brand-600 hover:bg-brand-50 flex items-center gap-2 transition-colors group">
+                                            <i data-lucide="trash-2" class="w-3.5 h-3.5 group-hover:scale-110 transition-transform"></i> 删除
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 分区 2：最近会话 (Recent) -->
+                    <div id="recent-section">
+                        <div class="flex items-center gap-2 text-[11px] font-semibold text-gray-400 tracking-wider uppercase mb-3 px-1">
+                            <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                            <span>Recent History</span>
+                        </div>
+                        
+                        <div id="recent-list">
+                            <!-- 历史项 1 -->
+                            <div class="session-item group relative flex items-center justify-between p-4 bg-white border border-transparent hover:border-gray-200 rounded-2xl hover:shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] transition-all mb-1" data-title="Scanned network for new unauthenticated nodes">
+                                <div class="flex items-center gap-4 cursor-pointer flex-1">
+                                    <!-- 本地 Agent 图标 (灰调) -->
+                                    <div class="w-10 h-10 rounded-full bg-gray-50 border border-gray-100 text-gray-600 flex items-center justify-center shrink-0">
+                                        <i data-lucide="bot" class="w-5 h-5"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-[14px] font-medium text-gray-900 mb-0.5">Scanned network for new unauthenticated nodes</h3>
+                                        <div class="flex items-center gap-2 text-[12px] text-gray-500">
+                                            <span class="font-medium text-gray-600">Local Agent</span>
+                                            <span class="w-1 h-1 rounded-full bg-gray-300"></span>
+                                            <span>March 10, 2026 - 09:12 AM</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- 操作菜单 -->
+                                <div class="relative">
+                                    <button onclick="toggleMenu(event, 'menu-2')" class="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors">
+                                        <i data-lucide="more-horizontal" class="w-5 h-5 pointer-events-none"></i>
+                                    </button>
+                                    <div id="menu-2" class="dropdown-menu hidden absolute right-0 mt-1 w-44 bg-white border border-gray-100 rounded-xl shadow-[0_10px_30px_-10px_rgba(0,0,0,0.1)] py-1 z-50">
+                                        <button onclick="pinSession(event, this)" class="w-full text-left px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors">
+                                            <i data-lucide="pin" class="w-3.5 h-3.5"></i> 置顶
+                                        </button>
+                                        <button onclick="showFlowDiagram(event)" class="w-full text-left px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors">
+                                            <i data-lucide="network" class="w-3.5 h-3.5"></i> 查看通讯日志
+                                        </button>
+                                        <button onclick="exportTraceReport(event)" class="w-full text-left px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors">
+                                            <i data-lucide="download" class="w-3.5 h-3.5"></i> 导出溯源报告
+                                        </button>
+                                        <div class="h-px bg-gray-100 my-1"></div>
+                                        <button onclick="deleteSession(event, this)" class="w-full text-left px-3 py-2 text-[13px] text-brand-600 hover:bg-brand-50 flex items-center gap-2 transition-colors group">
+                                            <i data-lucide="trash-2" class="w-3.5 h-3.5 group-hover:scale-110 transition-transform"></i> 删除
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- 历史项 2 -->
+                            <div class="session-item group relative flex items-center justify-between p-4 bg-white border border-transparent hover:border-gray-200 rounded-2xl hover:shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] transition-all mb-1" data-title="Automated encrypted backup for router logs">
+                                <div class="flex items-center gap-4 cursor-pointer flex-1">
+                                    <!-- 存储 Agent 图标 -->
+                                    <div class="w-10 h-10 rounded-full bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center shrink-0">
+                                        <i data-lucide="database" class="w-5 h-5"></i>
+                                    </div>
+                                    <div>
+                                        <h3 class="text-[14px] font-medium text-gray-900 mb-0.5">Automated encrypted backup for router logs</h3>
+                                        <div class="flex items-center gap-2 text-[12px] text-gray-500">
+                                            <span class="font-medium text-blue-600">Data Storage</span>
+                                            <span class="w-1 h-1 rounded-full bg-gray-300"></span>
+                                            <span>March 09, 2026 - 23:00 PM</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="relative">
+                                    <button onclick="toggleMenu(event, 'menu-3')" class="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors">
+                                        <i data-lucide="more-horizontal" class="w-5 h-5 pointer-events-none"></i>
+                                    </button>
+                                    <div id="menu-3" class="dropdown-menu hidden absolute right-0 mt-1 w-44 bg-white border border-gray-100 rounded-xl shadow-[0_10px_30px_-10px_rgba(0,0,0,0.1)] py-1 z-50">
+                                        <button onclick="pinSession(event, this)" class="w-full text-left px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors">
+                                            <i data-lucide="pin" class="w-3.5 h-3.5"></i> 置顶
+                                        </button>
+                                        <button onclick="showFlowDiagram(event)" class="w-full text-left px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors">
+                                            <i data-lucide="network" class="w-3.5 h-3.5"></i> 查看通讯日志
+                                        </button>
+                                        <button onclick="exportTraceReport(event)" class="w-full text-left px-3 py-2 text-[13px] text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex items-center gap-2 transition-colors">
+                                            <i data-lucide="download" class="w-3.5 h-3.5"></i> 导出溯源报告
+                                        </button>
+                                        <div class="h-px bg-gray-100 my-1"></div>
+                                        <button onclick="deleteSession(event, this)" class="w-full text-left px-3 py-2 text-[13px] text-brand-600 hover:bg-brand-50 flex items-center gap-2 transition-colors group">
+                                            <i data-lucide="trash-2" class="w-3.5 h-3.5 group-hover:scale-110 transition-transform"></i> 删除
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- 初始化 Lucide 图标 -->
+    <script>
+        lucide.createIcons();
+    </script>
+
+    <!-- ================= Trace Timeline Modal ================= -->
+    <div id="trace-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm opacity-0 transition-opacity duration-300" onclick="closeTraceTimeline()">
+        <!-- 溯源时间轴面板 -->
+        <div class="timeline-content bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden scale-95 translate-y-4 transition-all duration-300" onclick="event.stopPropagation()">
+            <!-- Header -->
+            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+                        <i data-lucide="git-merge" class="w-4 h-4 text-indigo-600"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-900">Message Trace</h3>
+                        <p class="text-[11px] text-gray-500 font-mono">ID: msg_79f8a2b1</p>
+                    </div>
+                </div>
+                <button onclick="closeTraceTimeline()" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <!-- Timeline Content -->
+            <div class="p-6">
+                <div class="relative">
+                    <!-- 纵向虚线 -->
+                    <div class="absolute left-4 top-2 bottom-2 w-px bg-gray-200 border-l border-dashed border-gray-300"></div>
+
+                    <!-- Step 1 -->
+                    <div class="relative flex gap-4 mb-6">
+                        <div class="w-8 h-8 rounded-full bg-white border border-gray-200 mt-1 flex items-center justify-center shrink-0 z-10 shadow-sm">
+                            <i data-lucide="bot" class="w-3.5 h-3.5 text-gray-600"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-[13px] font-semibold text-gray-800">Local Agent (Source)</span>
+                                <span class="text-[11px] text-gray-400">19:42:10.124</span>
+                            </div>
+                            <div class="text-[12px] text-gray-500 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                构造执行命令，发出 <code class="text-indigo-600">check_vulnerability</code> 请求。
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2 -->
+                    <div class="relative flex gap-4 mb-6">
+                        <div class="w-8 h-8 rounded-full bg-white border border-gray-200 mt-1 flex items-center justify-center shrink-0 z-10 shadow-sm">
+                            <i data-lucide="arrow-right-left" class="w-3.5 h-3.5 text-blue-500"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-[13px] font-semibold text-gray-800">MQTT Broker (Relay)</span>
+                                <span class="text-[11px] text-gray-400">19:42:10.138</span>
+                            </div>
+                            <div class="text-[12px] text-gray-500 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                Topic路由: <code class="text-gray-600">home/sec/scan</code>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3 -->
+                    <div class="relative flex gap-4 mb-6">
+                        <div class="w-8 h-8 rounded-full bg-white border border-gray-200 mt-1 flex items-center justify-center shrink-0 z-10 shadow-sm">
+                            <i data-lucide="server" class="w-3.5 h-3.5 text-purple-500"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-[13px] font-semibold text-gray-800">Node Gateway</span>
+                                <span class="text-[11px] text-gray-400">19:42:12.802</span>
+                            </div>
+                            <div class="text-[12px] text-gray-500 bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                验证身份与权限 (<code class="text-emerald-600">Access Granted</code>)，转发至本地服务。
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 4 -->
+                    <div class="relative flex gap-4">
+                        <div class="w-8 h-8 rounded-full bg-emerald-50 border border-emerald-200 mt-1 flex items-center justify-center shrink-0 z-10 shadow-sm">
+                            <i data-lucide="shield-check" class="w-3.5 h-3.5 text-emerald-600"></i>
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-[13px] font-semibold text-gray-800">Home Security (Target)</span>
+                                <span class="text-[11px] text-gray-400">19:42:15.045</span>
+                            </div>
+                            <div class="text-[12px] pl-1 text-gray-500">
+                                深度扫描完毕，执行耗时 2140ms，组装返回结果。
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-gray-50 border-t border-gray-100 px-6 py-3 flex items-center justify-between">
+                <span class="text-[11px] text-gray-500 font-mono flex items-center gap-1.5">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Validated Chain
+                </span>
+                <span class="text-[11px] font-medium text-gray-400">Total Latency: 4921ms</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= Flow Diagram Modal ================= -->
+    <div id="flow-modal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/40 backdrop-blur-sm opacity-0 transition-opacity duration-300" onclick="closeFlowDiagram()">
+        <div class="flow-content bg-white w-[95%] max-w-5xl rounded-2xl shadow-2xl overflow-hidden scale-95 translate-y-4 transition-all duration-300 flex flex-col max-h-[90vh]" onclick="event.stopPropagation()">
+            <!-- Header -->
+            <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50 shrink-0">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+                        <i data-lucide="network" class="w-4 h-4 text-indigo-600"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-semibold text-gray-900">Message Flow Traces</h3>
+                        <p class="text-[11px] text-gray-500 font-mono">End-to-end communication mapping</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <button onclick="closeFlowDiagram()" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition">
+                        <i data-lucide="x" class="w-5 h-5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Flow Content (Scrollable List of Traces) -->
+            <div class="p-6 overflow-y-auto w-full bg-gray-50/50 flex-1 space-y-6">
+                
+                <!-- ====== Trace 1 ====== -->
+                <div class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm overflow-x-auto">
+                    <div class="text-[11px] font-bold text-gray-500 mb-6 flex justify-between items-center min-w-max">
+                        <span class="text-gray-700 bg-gray-100 px-2 py-1 rounded">Trace #1: User Request "Deep Scan"</span>
+                        <span class="text-emerald-600 flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded border border-emerald-100"><i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Success (124ms)</span>
+                    </div>
+                    
+                    <div class="relative min-w-max">
+                        <!-- Forward path (Emerald dashed) -->
+                        <div class="flex items-center relative z-10 shrink-0">
+                            <!-- 1. User -->
+                            <div class="flex flex-col items-center w-24 relative">
+                                <div class="w-10 h-10 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center shadow-sm mb-2">
+                                    <i data-lucide="user" class="w-4 h-4 text-blue-600"></i>
+                                </div>
+                                <span class="text-[11px] font-bold text-gray-800">User</span>
+                                <span class="text-[10px] text-gray-500">Input</span>
+                            </div>
+
+                            <!-- Line -->
+                            <div class="flex-1 border-t border-emerald-300 border-dashed relative min-w-[70px]">
+                                <div class="absolute top-0 left-1/2 -translate-y-1/2 -translate-x-1/2 px-2 bg-white text-[10px] text-emerald-600 border border-emerald-100 rounded shadow-sm font-mono whitespace-nowrap">UI</div>
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-emerald-500 absolute right-0 top-0 -translate-y-1/2 translate-x-1/2 bg-white"></i>
+                            </div>
+
+                            <!-- 2. Local Agent -->
+                            <div class="flex flex-col items-center w-24 relative">
+                                <div class="w-10 h-10 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center shadow-sm mb-2">
+                                    <i data-lucide="bot" class="w-4 h-4 text-gray-600"></i>
+                                </div>
+                                <span class="text-[11px] font-bold text-gray-800">Local Agent</span>
+                                <span class="text-[10px] text-gray-500">Router</span>
+                            </div>
+
+                            <!-- Line -->
+                            <div class="flex-1 border-t border-emerald-300 border-dashed relative min-w-[70px]">
+                                <div class="absolute top-0 left-1/2 -translate-y-1/2 -translate-x-1/2 px-2 bg-white text-[10px] text-emerald-600 border border-emerald-100 rounded shadow-sm font-mono whitespace-nowrap">ANP</div>
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-emerald-500 absolute right-0 top-0 -translate-y-1/2 translate-x-1/2 bg-white"></i>
+                            </div>
+
+                            <!-- 3. Broker -->
+                            <div class="flex flex-col items-center w-24 relative">
+                                <div class="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-200 flex items-center justify-center shadow-sm mb-2">
+                                    <i data-lucide="arrow-right-left" class="w-4 h-4 text-indigo-600"></i>
+                                </div>
+                                <span class="text-[11px] font-bold text-gray-800 text-center leading-tight">MQTT<br>Broker</span>
+                            </div>
+
+                            <!-- Line -->
+                            <div class="flex-1 border-t border-emerald-300 border-dashed relative min-w-[70px]">
+                                <div class="absolute top-0 left-1/2 -translate-y-1/2 -translate-x-1/2 px-2 bg-white text-[10px] text-emerald-600 border border-emerald-100 rounded shadow-sm font-mono whitespace-nowrap">TCP</div>
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-emerald-500 absolute right-0 top-0 -translate-y-1/2 translate-x-1/2 bg-white"></i>
+                            </div>
+
+                            <!-- 4. Gateway -->
+                            <div class="flex flex-col items-center w-24 relative">
+                                <div class="w-10 h-10 rounded-full bg-purple-50 border border-purple-200 flex items-center justify-center shadow-sm mb-2">
+                                    <i data-lucide="server" class="w-4 h-4 text-purple-600"></i>
+                                </div>
+                                <span class="text-[11px] font-bold text-gray-800">Gateway</span>
+                                <span class="text-[10px] text-gray-500">Auth</span>
+                            </div>
+
+                            <!-- Line -->
+                            <div class="flex-1 border-t border-emerald-300 border-dashed relative min-w-[70px]">
+                                <div class="absolute top-0 left-1/2 -translate-y-1/2 -translate-x-1/2 px-2 bg-white text-[10px] text-emerald-600 border border-emerald-100 rounded shadow-sm font-mono whitespace-nowrap">Local</div>
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-emerald-500 absolute right-0 top-0 -translate-y-1/2 translate-x-1/2 bg-white"></i>
+                            </div>
+
+                            <!-- 5. Target -->
+                            <div class="flex flex-col items-center w-24 relative">
+                                <div class="w-10 h-10 rounded-full bg-orange-50 border border-orange-200 flex items-center justify-center shadow-sm mb-2">
+                                    <i data-lucide="shield-check" class="w-4 h-4 text-orange-600"></i>
+                                </div>
+                                <span class="text-[11px] font-bold text-gray-800 text-center leading-tight">Target<br>Node</span>
+                            </div>
+                        </div>
+
+                        <!-- Return path (Gray solid) tightly packed -->
+                        <div class="relative mt-3 h-4 w-full shrink-0">
+                            <div class="absolute top-1/2 left-[48px] right-[48px] h-px bg-gray-300">
+                                <i data-lucide="chevron-left" class="w-4 h-4 text-gray-400 absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 bg-white"></i>
+                                <div class="absolute top-1/2 left-1/2 -translate-y-1/2 -translate-x-1/2 px-3 py-0.5 bg-gray-50 border border-gray-200 rounded-full text-[10px] text-gray-600 font-medium shadow-sm whitespace-nowrap">
+                                    Return Result to User
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ====== Trace 2 ====== -->
+                <div class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm overflow-x-auto">
+                    <div class="text-[11px] font-bold text-gray-500 mb-6 flex justify-between items-center min-w-max">
+                        <span class="text-gray-700 bg-gray-100 px-2 py-1 rounded">Trace #2: Get System Status</span>
+                        <span class="text-emerald-600 flex items-center gap-1 bg-emerald-50 px-2 py-1 rounded border border-emerald-100"><i data-lucide="check-circle" class="w-3.5 h-3.5"></i> Success (45ms)</span>
+                    </div>
+                    
+                    <div class="relative min-w-max">
+                        <div class="flex items-center relative z-10 shrink-0">
+                            <!-- 1. User -->
+                            <div class="flex flex-col items-center w-24 relative">
+                                <div class="w-10 h-10 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center shadow-sm mb-2">
+                                    <i data-lucide="user" class="w-4 h-4 text-blue-600"></i>
+                                </div>
+                                <span class="text-[11px] font-bold text-gray-800">User</span>
+                            </div>
+
+                            <!-- Line -->
+                            <div class="flex-1 border-t border-emerald-300 border-dashed relative min-w-[70px]">
+                                <div class="absolute top-0 left-1/2 -translate-y-1/2 -translate-x-1/2 px-2 bg-white text-[10px] text-emerald-600 border border-emerald-100 rounded shadow-sm font-mono whitespace-nowrap">UI</div>
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-emerald-500 absolute right-0 top-0 -translate-y-1/2 translate-x-1/2 bg-white"></i>
+                            </div>
+
+                            <!-- 2. Local Agent -->
+                            <div class="flex flex-col items-center w-24 relative">
+                                <div class="w-10 h-10 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center shadow-sm mb-2">
+                                    <i data-lucide="bot" class="w-4 h-4 text-gray-600"></i>
+                                </div>
+                                <span class="text-[11px] font-bold text-gray-800">Local Agent</span>
+                            </div>
+
+                            <!-- Line -->
+                            <div class="flex-1 border-t border-emerald-300 border-dashed relative min-w-[70px]">
+                                <div class="absolute top-0 left-1/2 -translate-y-1/2 -translate-x-1/2 px-2 bg-white text-[10px] text-emerald-600 border border-emerald-100 rounded shadow-sm font-mono whitespace-nowrap">Local</div>
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-emerald-500 absolute right-0 top-0 -translate-y-1/2 translate-x-1/2 bg-white"></i>
+                            </div>
+
+                            <!-- 3. Gateway -->
+                            <div class="flex flex-col items-center w-24 relative">
+                                <div class="w-10 h-10 rounded-full bg-purple-50 border border-purple-200 flex items-center justify-center shadow-sm mb-2">
+                                    <i data-lucide="server" class="w-4 h-4 text-purple-600"></i>
+                                </div>
+                                <span class="text-[11px] font-bold text-gray-800">Gateway</span>
+                            </div>
+                        </div>
+
+                        <!-- Return path tightly packed -->
+                        <div class="relative mt-3 h-4 w-full shrink-0">
+                            <div class="absolute top-1/2 left-[48px] right-[48px] h-px bg-gray-300">
+                                <i data-lucide="chevron-left" class="w-4 h-4 text-gray-400 absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 bg-white"></i>
+                                <div class="absolute top-1/2 left-1/2 -translate-y-1/2 -translate-x-1/2 px-3 py-0.5 bg-gray-50 border border-gray-200 rounded-full text-[10px] text-gray-600 font-medium shadow-sm whitespace-nowrap">
+                                    Return Result to User
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ====== Trace 3 ====== -->
+                <div class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm overflow-x-auto opacity-70">
+                    <div class="text-[11px] font-bold text-gray-500 mb-6 flex justify-between items-center min-w-max">
+                        <span class="text-gray-700 bg-gray-100 px-2 py-1 rounded">Trace #3: Keep-Alive Ping</span>
+                        <span class="text-blue-500 flex items-center gap-1 bg-blue-50 px-2 py-1 rounded border border-blue-100"><i data-lucide="info" class="w-3.5 h-3.5"></i> Info (8ms)</span>
+                    </div>
+                    
+                    <div class="relative min-w-max">
+                        <div class="flex items-center relative z-10 shrink-0">
+                            <!-- 1. Local Agent -->
+                            <div class="flex flex-col items-center w-24 relative">
+                                <div class="w-10 h-10 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center shadow-sm mb-2">
+                                    <i data-lucide="bot" class="w-4 h-4 text-gray-600"></i>
+                                </div>
+                                <span class="text-[11px] font-bold text-gray-800">Local Agent</span>
+                            </div>
+
+                            <!-- Line -->
+                            <div class="flex-1 border-t border-emerald-300 border-dashed relative min-w-[120px]">
+                                <div class="absolute top-0 left-1/2 -translate-y-1/2 -translate-x-1/2 px-2 bg-white text-[10px] text-emerald-600 border border-emerald-100 rounded shadow-sm font-mono whitespace-nowrap">Ping MQTT</div>
+                                <i data-lucide="chevron-right" class="w-4 h-4 text-emerald-500 absolute right-0 top-0 -translate-y-1/2 translate-x-1/2 bg-white"></i>
+                            </div>
+
+                            <!-- 2. Broker -->
+                            <div class="flex flex-col items-center w-24 relative">
+                                <div class="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-200 flex items-center justify-center shadow-sm mb-2">
+                                    <i data-lucide="arrow-right-left" class="w-4 h-4 text-indigo-600"></i>
+                                </div>
+                                <span class="text-[11px] font-bold text-gray-800 text-center leading-tight">MQTT<br>Broker</span>
+                            </div>
+                        </div>
+
+                        <!-- Return path tightly packed -->
+                        <div class="relative mt-3 h-4 w-full shrink-0">
+                            <div class="absolute top-1/2 left-[48px] right-[48px] h-px bg-gray-300">
+                                <i data-lucide="chevron-left" class="w-4 h-4 text-gray-400 absolute left-0 top-1/2 -translate-y-1/2 -translate-x-1/2 bg-white"></i>
+                                <div class="absolute top-1/2 left-1/2 -translate-y-1/2 -translate-x-1/2 px-3 py-0.5 bg-gray-50 border border-gray-200 rounded-full text-[10px] text-gray-600 font-medium shadow-sm whitespace-nowrap">
+                                    ACK
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Footer Pagination -->
+            <div class="px-6 py-4 border-t border-gray-100 bg-white flex items-center justify-between shrink-0">
+                <span class="text-[12px] text-gray-500 font-medium">Showing 1-3 of 12 Traces</span>
+                <div class="flex items-center gap-1">
+                    <button class="px-3 py-1.5 border border-gray-200 text-gray-400 rounded-lg text-[12px] cursor-not-allowed">Previous</button>
+                    <button class="px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-lg text-[12px] font-semibold border border-indigo-100">1</button>
+                    <button class="px-3 py-1.5 hover:bg-gray-50 text-gray-600 rounded-lg text-[12px] transition">2</button>
+                    <button class="px-3 py-1.5 hover:bg-gray-50 text-gray-600 rounded-lg text-[12px] transition">3</button>
+                    <span class="px-2 text-gray-400 text-[12px]">...</span>
+                    <button class="px-3 py-1.5 border border-gray-200 text-gray-600 rounded-lg text-[12px] hover:bg-gray-50 transition shadow-sm">Next</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="export-toast" class="fixed top-6 right-6 z-[70] flex items-center gap-3 bg-gray-900 border border-gray-800 text-white px-4 py-3 rounded-xl shadow-2xl opacity-0 translate-x-10 transition-all duration-300 pointer-events-none">
+        <i data-lucide="check-circle" class="w-5 h-5 text-emerald-400"></i>
+        <div class="flex flex-col">
+            <span class="text-[13px] font-semibold">Report Exported</span>
+            <span class="text-[11px] text-gray-300">溯源报告已下载。</span>
+        </div>
+    </div>
+
+        <!-- ================= 页面切换脚本 ================= -->
+    <script>
+        // 渲染图标
+        lucide.createIcons();
+
+        // Nodes 菜单折叠与展开逻辑
+        function toggleNodes() {
+            const list = document.getElementById('nodes-list');
+            const chevron = document.getElementById('nodes-chevron');
+            // 判断当前是否展开
+            if (list.style.maxHeight === '0px' || list.style.maxHeight === '') {
+                // 展开
+                list.style.maxHeight = '200px';
+                list.style.opacity = '1';
+                chevron.style.transform = 'rotate(0deg)';
+            } else {
+                // 收起
+                list.style.maxHeight = '0px';
+                list.style.opacity = '0';
+                chevron.style.transform = 'rotate(-90deg)';
+            }
+        }
+
+        // Trace Timeline 隐藏/展示逻辑
+        function showTraceTimeline() {
+            const modal = document.getElementById('trace-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            // 小小延迟使得动画生效
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                const content = modal.querySelector('.timeline-content');
+                content.classList.remove('scale-95', 'translate-y-4');
+                content.classList.add('scale-100', 'translate-y-0');
+            }, 10);
+        }
+
+        function closeTraceTimeline() {
+            const modal = document.getElementById('trace-modal');
+            modal.classList.add('opacity-0');
+            const content = modal.querySelector('.timeline-content');
+            content.classList.remove('scale-100', 'translate-y-0');
+            content.classList.add('scale-95', 'translate-y-4');
+            
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 300); // 配合 CSS 动画时长
+        }
+
+        function switchPage(targetViewId, clickedBtnId) {
+            // 1. 隐藏所有试图
+            document.querySelectorAll('.page-view').forEach(view => {
+                view.classList.add('hidden');
+            });
+            // 2. 显示目标试图
+            document.getElementById(targetViewId).classList.remove('hidden');
+
+            // 3. 重置所有导航按钮的样式为灰色未选中状态
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('bg-brand-50', 'text-brand-600');
+                btn.classList.add('text-gray-500', 'hover:bg-gray-50', 'hover:text-gray-800');
+                
+                // 重置内部图标颜色（如果是Home节点）
+                const icon = btn.querySelector('i');
+                if(icon) {
+                    icon.classList.remove('opacity-90');
+                    icon.classList.add('opacity-70');
+                }
+            });
+
+            // 4. 将被点击的按钮设置为选中状态 (红色背景)
+            const activeBtn = document.getElementById(clickedBtnId);
+            activeBtn.classList.remove('text-gray-500', 'hover:bg-gray-50', 'hover:text-gray-800');
+            activeBtn.classList.add('bg-brand-50', 'text-brand-600');
+            
+            // 内部图标高亮
+            const activeIcon = activeBtn.querySelector('i');
+            if(activeIcon) {
+                activeIcon.classList.remove('opacity-70');
+                activeIcon.classList.add('opacity-90');
+            }
+        }
+
+        // --- Session 页面相关交互功能 ---
+
+        // 关闭所有下拉菜单
+        function closeAllDropdowns(event) {
+            const dropdowns = document.querySelectorAll('.dropdown-menu');
+            dropdowns.forEach(menu => {
+                menu.classList.add('hidden');
+                menu.classList.remove('dropdown-open');
+            });
+        }
+
+        // 切换下拉菜单
+        function toggleMenu(event, menuId) {
+            event.stopPropagation();
+            
+            // 重置所有的 session-item 的层级，防止下拉菜单被相邻元素遮挡
+            document.querySelectorAll('.session-item').forEach(el => {
+                el.style.zIndex = '1';
+            });
+
+            const menu = document.getElementById(menuId);
+            const isHidden = menu.classList.contains('hidden');
+            
+            closeAllDropdowns();
+
+            if (isHidden) {
+                // 提升当前操作的元素的层级
+                const parentItem = menu.closest('.session-item');
+                if (parentItem) parentItem.style.zIndex = '40';
+
+                menu.classList.remove('hidden');
+                menu.classList.add('dropdown-open');
+            }
+        }
+
+        // 查看消息流通图
+        function showFlowDiagram(event) {
+            event.stopPropagation();
+            closeAllDropdowns();
+            const modal = document.getElementById('flow-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                const content = modal.querySelector('.flow-content');
+                content.classList.remove('scale-95', 'translate-y-4');
+                content.classList.add('scale-100', 'translate-y-0');
+            }, 10);
+        }
+
+        function closeFlowDiagram() {
+            const modal = document.getElementById('flow-modal');
+            modal.classList.add('opacity-0');
+            const content = modal.querySelector('.flow-content');
+            content.classList.remove('scale-100', 'translate-y-0');
+            content.classList.add('scale-95', 'translate-y-4');
+            
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 300);
+        }
+
+        // 导出溯源报告并触发 Toast
+        function exportTraceReport(event) {
+            event.stopPropagation();
+            closeAllDropdowns();
+            
+            const toast = document.getElementById('export-toast');
+            
+            // 出现动画
+            toast.classList.remove('opacity-0', 'translate-x-10', 'pointer-events-none');
+            toast.classList.add('opacity-100', 'translate-x-0');
+            
+            // 3秒后消失动画
+            setTimeout(() => {
+                toast.classList.remove('opacity-100', 'translate-x-0');
+                toast.classList.add('opacity-0', 'translate-x-10', 'pointer-events-none');
+            }, 3000);
+        }
+
+        // 删除对话
+        function deleteSession(event, btnElement) {
+            event.stopPropagation();
+            const sessionItem = btnElement.closest('.session-item');
+            if(sessionItem) {
+                sessionItem.style.opacity = '0';
+                sessionItem.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    sessionItem.remove();
+                    updateSessionCount();
+                }, 200);
+            }
+        }
+
+        // 取消置顶（移入 Recent）
+        function unpinSession(event, btnElement) {
+            event.stopPropagation();
+            closeAllDropdowns();
+            const sessionItem = btnElement.closest('.session-item');
+            const recentList = document.getElementById('recent-list');
+            
+            if(sessionItem && recentList) {
+                // 先执行退出动画
+                sessionItem.style.transition = 'all 0.3s ease';
+                sessionItem.style.opacity = '0';
+                sessionItem.style.transform = 'scale(0.95)';
+                
+                setTimeout(() => {
+                    // 修改按钮为置顶功能
+                    btnElement.innerHTML = `<i data-lucide="pin" class="w-3.5 h-3.5"></i> 置顶`;
+                    btnElement.setAttribute('onclick', 'pinSession(event, this)');
+                    
+                    recentList.prepend(sessionItem);
+                    lucide.createIcons(); // 刷新图标
+                    
+                    // 然后执行进入动画
+                    setTimeout(() => {
+                        sessionItem.style.opacity = '1';
+                        sessionItem.style.transform = 'scale(1)';
+                    }, 10);
+                }, 300);
+            }
+        }
+
+        // 置顶（移入 Pinned）
+        function pinSession(event, btnElement) {
+            event.stopPropagation();
+            closeAllDropdowns();
+            const sessionItem = btnElement.closest('.session-item');
+            const pinnedList = document.getElementById('pinned-list');
+            
+            if(sessionItem && pinnedList) {
+                // 先执行退出动画
+                sessionItem.style.transition = 'all 0.3s ease';
+                sessionItem.style.opacity = '0';
+                sessionItem.style.transform = 'scale(0.95)';
+                
+                setTimeout(() => {
+                    // 修改按钮为取消置顶功能
+                    btnElement.innerHTML = `<i data-lucide="pin-off" class="w-3.5 h-3.5"></i> 取消置顶`;
+                    btnElement.setAttribute('onclick', 'unpinSession(event, this)');
+                    
+                    pinnedList.prepend(sessionItem);
+                    lucide.createIcons(); // 刷新图标
+                    
+                    // 然后执行进入动画
+                    setTimeout(() => {
+                        sessionItem.style.opacity = '1';
+                        sessionItem.style.transform = 'scale(1)';
+                    }, 10);
+                }, 300);
+            }
+        }
+
+        // 搜索过滤与高亮 (带隐藏动画)
+        function filterSessions(event) {
+            const searchTerm = event.target.value.toLowerCase();
+            const sessionItems = document.querySelectorAll('.session-item');
+            
+            sessionItems.forEach(item => {
+                const title = item.getAttribute('data-title').toLowerCase();
+                
+                // 确保有过渡样式
+                if (!item.style.transition) {
+                    item.style.transition = 'all 0.3s ease';
+                }
+                
+                if (title.includes(searchTerm)) {
+                    // 如果原本隐藏，先 display 出来，并在下一帧修改样式淡入
+                    if (item.style.display === 'none') {
+                        item.style.display = 'flex';
+                        item.style.opacity = '0';
+                        item.style.transform = 'scale(0.95)';
+                        
+                        setTimeout(() => {
+                            item.style.opacity = '1';
+                            item.style.transform = 'scale(1)';
+                        }, 10);
+                    } else {
+                        item.style.opacity = '1';
+                        item.style.transform = 'scale(1)';
+                    }
+                } else {
+                    // 如果是要排除的元素，开始淡出，等动画结束后隐藏
+                    if (item.style.display !== 'none') {
+                        item.style.opacity = '0';
+                        item.style.transform = 'scale(0.95)';
+                        
+                        // 使用 dataset 避免重复添加定时器（或者可以直接依靠 timeout，简化处理下）
+                        setTimeout(() => {
+                            // double check incase the filter changed again mid-animation
+                            const currentSearchTerm = event.target.value.toLowerCase();
+                            if (!title.includes(currentSearchTerm)) {
+                                item.style.display = 'none';
+                            }
+                        }, 300);
+                    }
+                }
+            });
+        }
+
+        // 更新总数显示
+        function updateSessionCount() {
+            const count = document.querySelectorAll('.session-item').length;
+            const countElement = document.getElementById('session-count');
+            if(countElement) {
+                countElement.innerText = count + ' Total';
+            }
+        }
+    </script>
+</body>
+</html>

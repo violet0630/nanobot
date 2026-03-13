@@ -268,18 +268,29 @@ def gateway(
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
 
-    # Initialize ANP components
+    # Initialize ANP components (OpenANP SDK)
     agent_registry = None
     anp_client = None
     anp_server = None
     if config.anp.enabled:
+        from nanobot.anp.auth import DIDManager
         from nanobot.anp.discovery import AgentRegistry
         from nanobot.anp.client import ANPClient
         from nanobot.anp.server import ANPServer
 
+        # Initialize DID identity
+        did_segments = config.anp.agent_did.split(":")[-1:]  # e.g. ["security-manager"]
+        did_manager = DIDManager(
+            did_dir=Path(config.anp.did_dir).expanduser(),
+            hostname=config.anp.hostname,
+            path_segments=did_segments,
+        )
+        did_manager.ensure_did()
+        auth_header = did_manager.get_auth_header()
+
         registry_path = str(Path(config.anp.registry_path).expanduser())
         agent_registry = AgentRegistry(registry_path, config.anp.agent_did)
-        anp_client = ANPClient(message_bus=bus, registry=agent_registry)
+        anp_client = ANPClient(message_bus=bus, registry=agent_registry, auth=auth_header)
         anp_server = ANPServer(config.anp, bus)
 
     # Create cron service first (callback set after agent creation)
@@ -407,6 +418,7 @@ def gateway(
 
     if config.anp.enabled and anp_server:
         console.print(f"[green]✓[/green] ANP Server: port {config.anp.server_port}, DID: {config.anp.agent_did}")
+        console.print(f"  Discovery: http://localhost:{config.anp.server_port}/agent/ad.json")
 
     async def run():
         try:

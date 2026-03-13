@@ -3,7 +3,6 @@
 from typing import Any
 
 from nanobot.agent.tools.base import Tool
-from nanobot.anp.message import ANPMessage
 
 
 class SendMessageTool(Tool):
@@ -72,13 +71,13 @@ class SendMessageTool(Tool):
                 content=content,
             )
         elif target.startswith("did:"):
-            # Send to agent via ANP
-            anp_msg = ANPMessage(
-                sender_did=self.anp_client.registry.get_self_did() if self.anp_client.registry else "unknown",
-                receiver_did=target,
+            # Send to agent via OpenANP SDK
+            sender_did = self.anp_client.registry.get_self_did() if self.anp_client.registry else "unknown"
+            return await self.anp_client.send_to_agent(
+                target_did=target,
+                sender_did=sender_did,
                 content=content,
                 message_type="agent_request",
             )
-            return await self.anp_client.send_to_agent(target, anp_msg)
         else:
-            return f"Error: Invalid target format. Use 'user:feishu' or 'did:wba:...'"
+            return "Error: Invalid target format. Use 'user:feishu' or 'did:wba:...'"

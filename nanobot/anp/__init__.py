@@ -1,8 +1,8 @@
-"""ANP (Agent Network Protocol) integration for nanobot."""
+"""ANP (Agent Network Protocol) integration for nanobot, powered by OpenANP SDK."""
 
-from .message import ANPMessage
+from .auth import DIDManager
 from .client import ANPClient
 from .server import ANPServer
 from .discovery import AgentRegistry
 
-__all__ = ["ANPMessage", "ANPClient", "ANPServer", "AgentRegistry"]
+__all__ = ["DIDManager", "ANPClient", "ANPServer", "AgentRegistry"]

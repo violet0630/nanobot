@@ -7,9 +7,10 @@
 本项目在 nanobot 的基础上进行了改造，使其能够作为 Agent 网络中的一个节点，通过 ANP 协议与其他 Agent 进行通信和协作。
 
 **核心特性：**
-- 🔗 ANP 协议集成 - 支持 Agent 间的标准化通信
+- 🔗 OpenANP SDK 集成 - 基于 `anp` 包实现标准化 Agent 通信
 - 🤖 多 Agent 协作 - 构建分布式 Agent 网络
-- 🔐 角色权限管理 - 区分用户（主人）和 Agent 消息
+- 🔐 DID WBA 身份认证 - 去中心化身份验证
+- 🔍 Agent 自动发现 - 通过 ad.json 自动发现和调用远程 Agent
 - 🛡️ 安全管理员角色 - 协调网络中的安全事务
 - 📱 飞书集成 - 用户通过飞书与 Agent 网络交互
 
@@ -28,8 +29,8 @@ cd nanobot
 # 安装 nanobot 依赖
 pip install -e .
 
-# 安装 通信（后续可以改成openANP sdk） 相关依赖
-pip install fastapi uvicorn httpx openai
+# 安装 通信依赖（使用 OpenANP SDK）
+pip install fastapi uvicorn openai anp
 ```
 
 ### 3. 初始化配置
@@ -52,7 +53,9 @@ vim ~/.nanobot/config.json
     "enabled": true,
     "agent_did": "did:wba:home.local:security-manager",
     "server_port": 8000,
-    "registry_path": "~/agent_registry.json"
+    "registry_path": "~/agent_registry.json",
+    "did_dir": "~/.nanobot/did",
+    "hostname": "home.local"
   },
   "channels": {
     "feishu": {
@@ -110,6 +113,11 @@ python3 furniture_security_agent.py
 nanobot gateway
 ```
 
+启动后每个 Agent 会暴露发现端点：
+- 安全管理员: `http://localhost:8000/agent/ad.json`
+- 网络数据储存者: `http://localhost:8001/agent/ad.json`
+- 家居安全: `http://localhost:8002/agent/ad.json`
+
 ### 5. 测试
 
 通过飞书发送消息：
@@ -119,86 +127,59 @@ nanobot gateway
 
 观察三个 Agent 之间的消息流转。
 
-## 架构改进
+## 架构
 
-### 原始 nanobot 架构
-
-```
-用户(飞书) → FeishuChannel → MessageBus → AgentLoop → LLM → MessageTool → 用户
-```
-
-### 改进后的架构
+### 通信架构
 
 ```
-用户(飞书) → FeishuChannel → MessageBus ←→ ANP Server (接收其他 Agent)
-                                    ↓
-                              AgentLoop + LLM
-                                    ↓
-                            SendMessageTool (统一发送)
+用户(飞书) → FeishuChannel → MessageBus ←→ ANP Server (@anp_agent)
+                                    ↓              ↑
+                              AgentLoop + LLM    RemoteAgent.discover()
+                                    ↓              (ad.json 自动发现)
+                            SendMessageTool
                               ↙          ↘
                     ANP Client          MessageBus
-                    (发给 Agent)        (发给用户)
+                  (RemoteAgent SDK)    (发给用户)
+                    (发给 Agent)
 ```
 
-### 核心改进点
+### 核心模块
 
-#### 1. ANP 协议集成
+#### 1. OpenANP SDK 集成
 
-**新增模块：**
-- `nanobot/anp/message.py` - ANP 消息格式定义
-- `nanobot/anp/client.py` - ANP 客户端（发送消息）
-- `nanobot/anp/server.py` - ANP 服务器（接收消息）
-- `nanobot/anp/discovery.py` - Agent 注册表管理
-- `nanobot/channels/anp_channel.py` - ANP Channel 适配器
+**ANP 模块 (`nanobot/anp/`)：**
+- `auth.py` - DID WBA 身份认证，密钥生成和管理
+- `client.py` - 基于 `RemoteAgent.discover()` 的 Agent 客户端
+- `server.py` - 基于 `@anp_agent` + `@interface` 装饰器的 Agent 服务
+- `discovery.py` - Agent 注册表，支持 ad.json 自动发现
 
 **通信协议：**
-- 使用 HTTP JSON-RPC 2.0
-- 消息格式包含：sender_did, receiver_did, content, message_type
-- 支持 Agent 间的点对点通信
+- 使用 OpenANP SDK 的 JSON-RPC 2.0 实现
+- 每个 Agent 自动暴露 `ad.json`（Agent Description）和 `interface.json`（OpenRPC 接口）
+- 支持 DID WBA 身份认证
+- Agent 间通过 `RemoteAgent.discover(ad_url)` 自动发现并调用
 
 #### 2. 统一消息接口
 
-**新增工具：**
-- `nanobot/agent/tools/send_message_tool.py` - 替代原 MessageTool
-- 支持发送给用户：`target="user:feishu"`
-- 支持发送给 Agent：`target="did:wba:..."`
+**发送工具 (`send_message_tool.py`)：**
+- 发送给用户：`target="user:feishu"`
+- 发送给 Agent：`target="did:wba:..."`（通过 OpenANP SDK 调用远程 Agent 的 `receive_message` 接口）
 
-**消息来源识别：**
-- 修改 `context.py`：注入 sender_id 到运行时上下文
-- 修改 `loop.py`：传递 sender_id 到 build_messages
-- LLM 能识别消息来自主人（feishu）还是其他 Agent（did:）
+#### 3. Agent 注册表
 
-#### 3. 安全管理员角色
-
-**新增提示词：**
-- `nanobot/agent/prompts/security_manager.md`
-- 定义安全管理员的职责和协作规则
-- 包含特定场景的硬编码规则（用于测试）
-
-**角色职责：**
-- 接收用户指令，协调其他 Agent
-- 处理安全相关事务
-- 转发 Agent 消息给用户
-
-#### 4. Agent 注册表
-
-**配置文件：**
-- `agent_registry.json` - 存储网络中所有 Agent 的信息
-- 包含：DID、名称、描述、端点、能力列表
-
-**注入到提示词：**
-- LLM 能看到网络中所有可用的 Agent
-- 根据消息内容智能选择目标 Agent
-
-#### 5. 配置系统扩展
-
-**新增配置：**
-- `config/schema.py` 添加 `ANPConfig` 类
-- 支持配置 Agent DID、服务端口、注册表路径
-
-**启动流程：**
-- `cli/commands.py` 在 gateway 启动时初始化 ANP 组件
-- 同时启动 ANP HTTP 服务器
+**配置文件 (`agent_registry.json`)：**
+```json
+{
+  "agents": [
+    {
+      "did": "did:wba:home.local:furniture-manager",
+      "name": "家居安全 Agent",
+      "ad_url": "http://localhost:8002/agent/ad.json",
+      "capabilities": ["security_check", "package_inspection"]
+    }
+  ]
+}
+```
 
 ## Agent 网络示例
 
@@ -222,22 +203,22 @@ nanobot gateway
 ```
 nanobot/
 ├── nanobot/
-│   ├── anp/                    # ANP 协议实现
+│   ├── anp/                    # ANP 协议实现 (OpenANP SDK)
 │   │   ├── __init__.py
-│   │   ├── message.py          # 消息格式
-│   │   ├── client.py           # 客户端
-│   │   ├── server.py           # 服务器
-│   │   └── discovery.py        # 注册表
+│   │   ├── auth.py            # DID WBA 身份认证
+│   │   ├── client.py          # RemoteAgent 客户端
+│   │   ├── server.py          # @anp_agent 服务器
+│   │   └── discovery.py       # Agent 注册表 + ad.json 发现
 │   ├── agent/
 │   │   ├── prompts/
 │   │   │   └── security_manager.md  # 安全管理员提示词
 │   │   └── tools/
 │   │       └── send_message_tool.py # 统一发送工具
-│   └── channels/
-│       └── anp_channel.py      # ANP Channel
-├── network_data_agent.py       # 网络数据储存者
-├── furniture_security_agent.py # 家居安全 Agent
-├── agent_registry.json         # Agent 注册表
+│   └── config/
+│       └── schema.py          # ANPConfig (DID、密钥路径)
+├── network_data_agent.py       # 网络数据储存者 (@anp_agent)
+├── furniture_security_agent.py # 家居安全 Agent (@anp_agent)
+├── agent_registry.json         # Agent 注册表 (ad_url)
 ├── start_agents.sh             # 启动脚本
 └── AGENT_NETWORK_README.md     # 详细文档
 ```
@@ -247,7 +228,8 @@ nanobot/
 1. **API Key 配置**：需要配置 Anthropic API Key（nanobot）和 OpenAI API Key（其他 Agent）
 2. **端口占用**：确保 8000、8001、8002 端口未被占用
 3. **飞书配置**：需要在飞书开放平台创建应用并配置
-4. **安全风险**：当前实现的场景规则存在社会工程学攻击风险，仅用于演示
+4. **DID 密钥**：首次启动时会自动在 `~/.nanobot/did/` 下生成 DID 文档和密钥对
+5. **安全风险**：当前实现的场景规则存在社会工程学攻击风险，仅用于演示
 
 ## 原始 nanobot 功能
 

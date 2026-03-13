@@ -288,6 +288,8 @@ class ANPConfig(Base):
     agent_did: str = "did:wba:home.local:security-manager"
     server_port: int = 8000
     registry_path: str = "~/agent_registry.json"
+    did_dir: str = "~/.nanobot/did"  # DID document and keys directory
+    hostname: str = "home.local"  # DID hostname
 
 
 class WebSearchConfig(Base):

@@ -4,14 +4,14 @@
       "did": "did:wba:home.local:furniture-manager",
       "name": "家居安全 Agent",
       "description": "负责家居安全检查和安全升级管理",
-      "endpoint": "http://localhost:8002/rpc",
+      "ad_url": "http://localhost:8002/agent/ad.json",
       "capabilities": ["security_check", "package_inspection", "security_upgrade"]
     },
     {
       "did": "did:wba:home.local:network-data-storage",
       "name": "网络数据储存者 Agent",
       "description": "负责存储和提供网络数据",
-      "endpoint": "http://localhost:8001/rpc",
+      "ad_url": "http://localhost:8001/agent/ad.json",
       "capabilities": ["data_storage", "data_retrieval", "security_notification"]
     }
   ]
