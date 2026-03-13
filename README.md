@@ -26,11 +26,11 @@ cd nanobot
 ### 2. 安装依赖
 
 ```bash
-# 安装 nanobot 依赖
+# 安装 nanobot 依赖（包含 OpenANP SDK anp 包）
 pip install -e .
 
-# 安装 通信依赖（使用 OpenANP SDK）
-pip install fastapi uvicorn openai anp
+# 安装额外的通信依赖
+pip install fastapi uvicorn openai
 ```
 
 ### 3. 初始化配置
@@ -152,6 +152,11 @@ nanobot gateway
 - `client.py` - 基于 `RemoteAgent.discover()` 的 Agent 客户端
 - `server.py` - 基于 `@anp_agent` + `@interface` 装饰器的 Agent 服务
 - `discovery.py` - Agent 注册表，支持 ad.json 自动发现
+
+**OpenANP SDK (`anp` 包)：**
+- 从 PyPI 安装：`anp>=0.6.0,<1.0.0`
+- 仓库：https://github.com/agent-network-protocol/AgentConnect
+- 已包含在 nanobot 的依赖中，无需单独安装
 
 **通信协议：**
 - 使用 OpenANP SDK 的 JSON-RPC 2.0 实现
