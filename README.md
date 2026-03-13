@@ -27,10 +27,14 @@ cd nanobot
 
 ```bash
 # 安装 nanobot 依赖（包含 OpenANP SDK anp 包）
-pip install -e .
+uv venv(记得激活)
+uv pip install -e .
+git clone https://github.com/agent-network-protocol/anp.git
+cd agent-network-protocol
+uv pip install -e .
 
 # 安装额外的通信依赖
-pip install fastapi uvicorn openai
+uv pip install fastapi uvicorn openai
 ```
 
 ### 3. 初始化配置
